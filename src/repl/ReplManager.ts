@@ -9,11 +9,13 @@ import { UIManager } from '../ui/UIManager';
 import { WriteFileTool, ReadFileTool, ListDirTool } from '../tools/FileTools';
 import { Tool } from '../tools/Tool';
 import { McpClient } from '../mcp/McpClient';
+import { CheckpointManager } from '../checkpoint/CheckpointManager';
 
 export class ReplManager {
     private configManager: ConfigManager;
     private modelClient!: ModelClient;
     private contextManager: ContextManager;
+    private checkpointManager: CheckpointManager;
     private history: ChatMessage[] = [];
     private mode: 'PLAN' | 'BUILD' = 'BUILD';
     private tools: Tool[] = [];
@@ -22,6 +24,7 @@ export class ReplManager {
     constructor() {
         this.configManager = new ConfigManager();
         this.contextManager = new ContextManager();
+        this.checkpointManager = new CheckpointManager();
         this.tools = [new WriteFileTool(), new ReadFileTool(), new ListDirTool()];
         // Default to Ollama if not specified, assuming compatible endpoint
         this.initializeClient();
@@ -100,9 +103,13 @@ export class ReplManager {
                 console.log('  /drop <file> - Remove file from context');
                 console.log('  /plan    - Switch to PLAN mode');
                 console.log('  /build   - Switch to BUILD mode');
-                console.log('  /connect <provider> [key] - Connect to a provider (gemini, ollama)');
-                console.log('  /use <provider> [model]   - Switch provider and model');
-                console.log('  /mcp <cmd> - Manage MCP servers (Coming Soon)');
+                console.log('  /plan    - Switch to PLAN mode');
+                console.log('  /build   - Switch to BUILD mode');
+                console.log('  /model   - Interactively select Provider & Model');
+                console.log('  /use <provider> [model] - Quick switch (legacy)');
+                console.log('  /mcp <cmd> - Manage MCP servers');
+                console.log('  /resume  - Resume last session');
+                console.log('  /checkpoint <save|load|list> [name] - Manage checkpoints');
                 break;
             case '/plan':
                 this.mode = 'PLAN';
@@ -112,7 +119,15 @@ export class ReplManager {
                 this.mode = 'BUILD';
                 console.log(chalk.yellow('Switched to BUILD mode.'));
                 break;
+            case '/build':
+                this.mode = 'BUILD';
+                console.log(chalk.yellow('Switched to BUILD mode.'));
+                break;
+            case '/model':
+                await this.handleModelCommand();
+                break;
             case '/connect':
+                console.log(chalk.dim('Tip: Use /model for an interactive menu.'));
                 await this.handleConnectCommand(args);
                 break;
             case '/use':
@@ -120,6 +135,12 @@ export class ReplManager {
                 break;
             case '/mcp':
                 await this.handleMcpCommand(args);
+                break;
+            case '/resume':
+                await this.handleResumeCommand();
+                break;
+            case '/checkpoint':
+                await this.handleCheckpointCommand(args);
                 break;
             case '/clear':
                 this.history = [];
@@ -147,7 +168,9 @@ export class ReplManager {
                 await this.handleConfigCommand();
                 break;
             case '/exit':
-                console.log(chalk.green('Goodbye!'));
+                // Auto-save on exit
+                this.checkpointManager.save('latest', this.history, this.contextManager.getFiles());
+                console.log(chalk.green('Session saved. Goodbye!'));
                 process.exit(0);
                 break;
             default:
@@ -363,6 +386,80 @@ export class ReplManager {
         console.log(chalk.green('Configuration updated and reloaded.'));
     }
 
+    private async handleModelCommand() {
+        const { provider } = await inquirer.prompt([
+            {
+                type: 'list',
+                name: 'provider',
+                message: 'Select AI Provider:',
+                choices: ['Gemini', 'Ollama', 'OpenAI'],
+            }
+        ]);
+
+        let models: string[] = [];
+        if (provider === 'Gemini') {
+            models = ['gemini-2.5-flash', 'gemini-1.5-pro', 'gemini-1.5-flash', 'Other...'];
+        } else if (provider === 'Ollama') {
+            models = ['llama3:latest', 'deepseek-r1:latest', 'mistral:latest', 'Other...'];
+        } else if (provider === 'OpenAI') {
+            models = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'Other...'];
+        }
+
+        let { model } = await inquirer.prompt([
+            {
+                type: 'list',
+                name: 'model',
+                message: 'Select Model:',
+                choices: models,
+            }
+        ]);
+
+        if (model === 'Other...') {
+            const { customModel } = await inquirer.prompt([{
+                type: 'input',
+                name: 'customModel',
+                message: 'Enter model name:'
+            }]);
+            model = customModel;
+        }
+
+        let updates: any = {};
+        const config = this.configManager.getConfig();
+
+        if (provider === 'Ollama') {
+            const { baseUrl } = await inquirer.prompt([{
+                type: 'input',
+                name: 'baseUrl',
+                message: 'Enter Base URL:',
+                default: config.ollama?.baseUrl || 'http://localhost:11434/v1'
+            }]);
+            updates.ollama = { ...config.ollama, baseUrl, model };
+            updates.defaultProvider = 'ollama';
+        } else {
+            // Gemini or OpenAI
+            const currentKey = provider === 'Gemini' ? config.gemini?.apiKey : config.openai?.apiKey;
+            const { apiKey } = await inquirer.prompt([{
+                type: 'password',
+                name: 'apiKey',
+                message: `Enter ${provider} API Key:`,
+                mask: '*',
+                default: currentKey
+            }]);
+
+            if (provider === 'Gemini') {
+                updates.gemini = { ...config.gemini, apiKey, model };
+                updates.defaultProvider = 'gemini';
+            } else {
+                updates.openai = { ...config.openai, apiKey, model };
+                updates.defaultProvider = 'openai';
+            }
+        }
+
+        this.configManager.updateConfig(updates);
+        this.initializeClient();
+        console.log(chalk.green(`\nSuccessfully connected to ${provider} (${model})!`));
+    }
+
     private async handleConnectCommand(args: string[]) {
         if (args.length < 1) {
             console.log(chalk.red('Usage: /connect <provider> [key_or_url]'));
@@ -507,6 +604,62 @@ export class ReplManager {
             console.log(chalk.green('All MCP clients disconnected.'));
         } else {
             console.log(chalk.red(`Unknown MCP action: ${action}`));
+        }
+    }
+
+    private async handleResumeCommand() {
+        if (!this.checkpointManager.exists('latest')) {
+            console.log(chalk.yellow('No previous session found to resume.'));
+            return;
+        }
+        await this.loadCheckpoint('latest');
+    }
+
+    private async handleCheckpointCommand(args: string[]) {
+        if (args.length < 1) {
+            console.log(chalk.red('Usage: /checkpoint <save|load|list> [name]'));
+            return;
+        }
+        const action = args[0];
+        const name = args[1] || 'default';
+
+        if (action === 'save') {
+            this.checkpointManager.save(name, this.history, this.contextManager.getFiles());
+            console.log(chalk.green(`Checkpoint '${name}' saved.`));
+        } else if (action === 'load') {
+            await this.loadCheckpoint(name);
+        } else if (action === 'list') {
+            const points = this.checkpointManager.list();
+            console.log(chalk.cyan('Available Checkpoints:'));
+            points.forEach(p => console.log(` - ${p}`));
+        } else {
+            console.log(chalk.red(`Unknown action: ${action}`));
+        }
+    }
+
+    private async loadCheckpoint(name: string) {
+        const cp = this.checkpointManager.load(name);
+        if (!cp) {
+            console.log(chalk.red(`Checkpoint '${name}' not found.`));
+            return;
+        }
+
+        this.history = cp.history;
+        this.contextManager.clear();
+
+        // Restore context files
+        if (cp.files && cp.files.length > 0) {
+            console.log(chalk.dim('Restoring context files...'));
+            for (const file of cp.files) {
+                await this.contextManager.addFile(file);
+            }
+        }
+        console.log(chalk.green(`Resumed session '${name}' (${new Date(cp.timestamp).toLocaleString()})`));
+        // Re-display last assistant message if any
+        const lastMsg = this.history[this.history.length - 1];
+        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.content) {
+            console.log(chalk.blue('\nLast message:'));
+            console.log(lastMsg.content);
         }
     }
 }

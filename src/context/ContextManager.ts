@@ -45,4 +45,8 @@ export class ContextManager {
         }
         return context;
     }
+
+    public getFiles(): string[] {
+        return Array.from(this.files.keys());
+    }
 }
