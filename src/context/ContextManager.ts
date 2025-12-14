@@ -6,8 +6,15 @@ export interface FileContext {
     content: string;
 }
 
+import { RepoMapper } from './RepoMapper';
+
 export class ContextManager {
     private files: Map<string, string> = new Map();
+    private repoMapper: RepoMapper;
+
+    constructor() {
+        this.repoMapper = new RepoMapper(process.cwd());
+    }
 
     public async addFile(filePath: string): Promise<string> {
         try {
@@ -37,12 +44,16 @@ export class ContextManager {
     }
 
     public getContextString(): string {
-        if (this.files.size === 0) return '';
+        const repoMap = this.repoMapper.generateTree();
+        let context = `Repository Structure:\n${repoMap}\n\n`;
 
-        let context = 'Current File Context:\n\n';
-        for (const [filePath, content] of this.files.entries()) {
-            context += `--- File: ${path.basename(filePath)} ---\n${content}\n\n`;
+        if (this.files.size > 0) {
+            context += 'Current File Context:\n\n';
+            for (const [filePath, content] of this.files.entries()) {
+                context += `--- File: ${path.basename(filePath)} ---\n${content}\n\n`;
+            }
         }
+
         return context;
     }
 

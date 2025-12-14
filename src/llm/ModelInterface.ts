@@ -15,13 +15,21 @@ export interface ChatMessage {
     name?: string; // For tool role messages
 }
 
+export interface ChatResponse {
+    content: string;
+    tool_calls?: ToolCall[];
+    usage?: {
+        input_tokens: number;
+        output_tokens: number;
+    };
+}
+
 export interface ModelResponse {
     content: string | null;
     tool_calls?: ToolCall[];
     usage?: {
-        promptTokens: number;
-        completionTokens: number;
-        totalTokens: number;
+        input_tokens: number;
+        output_tokens: number;
     };
 }
 

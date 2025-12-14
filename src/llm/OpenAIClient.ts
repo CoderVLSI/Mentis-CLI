@@ -41,13 +41,12 @@ export class OpenAIClient implements ModelClient {
 
             const choice = response.data.choices[0];
             return {
-                content: choice.message.content,
-                tool_calls: choice.message.tool_calls,
-                usage: response.data.usage ? {
-                    promptTokens: response.data.usage.prompt_tokens,
-                    completionTokens: response.data.usage.completion_tokens,
-                    totalTokens: response.data.usage.total_tokens
-                } : undefined
+                content: response.data.choices[0].message.content,
+                tool_calls: response.data.choices[0].message.tool_calls,
+                usage: {
+                    input_tokens: response.data.usage?.prompt_tokens || 0,
+                    output_tokens: response.data.usage?.completion_tokens || 0
+                }
             };
         } catch (error: any) {
             console.error('Error calling model API:', error.message);

@@ -7,6 +7,8 @@ import { OpenAIClient } from '../llm/OpenAIClient';
 import { ContextManager } from '../context/ContextManager';
 import { UIManager } from '../ui/UIManager';
 import { WriteFileTool, ReadFileTool, ListDirTool } from '../tools/FileTools';
+import { SearchFileTool, RunShellTool } from '../tools/SearchTools';
+import { WebSearchTool } from '../tools/WebSearchTool';
 import { Tool } from '../tools/Tool';
 import { McpClient } from '../mcp/McpClient';
 import { CheckpointManager } from '../checkpoint/CheckpointManager';
@@ -25,7 +27,14 @@ export class ReplManager {
         this.configManager = new ConfigManager();
         this.contextManager = new ContextManager();
         this.checkpointManager = new CheckpointManager();
-        this.tools = [new WriteFileTool(), new ReadFileTool(), new ListDirTool()];
+        this.tools = [
+            new WriteFileTool(),
+            new ReadFileTool(),
+            new ListDirTool(),
+            new SearchFileTool(),
+            new RunShellTool(),
+            new WebSearchTool()
+        ];
         // Default to Ollama if not specified, assuming compatible endpoint
         this.initializeClient();
     }
@@ -110,6 +119,9 @@ export class ReplManager {
                 console.log('  /mcp <cmd> - Manage MCP servers');
                 console.log('  /resume  - Resume last session');
                 console.log('  /checkpoint <save|load|list> [name] - Manage checkpoints');
+                console.log('  /search <query> - Search codebase');
+                console.log('  /run <cmd> - Run shell command');
+                console.log('  /commit [msg] - Git commit all changes');
                 break;
             case '/plan':
                 this.mode = 'PLAN';
@@ -313,6 +325,13 @@ export class ReplManager {
             if (response.content) {
                 console.log(chalk.bold.blue('Mentis:'));
                 console.log(response.content);
+
+                if (response.usage) {
+                    const { input_tokens, output_tokens } = response.usage;
+                    const totalCost = this.estimateCost(input_tokens, output_tokens);
+                    console.log(chalk.dim(`\n(Tokens: ${input_tokens} in / ${output_tokens} out | Est. Cost: $${totalCost.toFixed(5)})`));
+                }
+
                 console.log('');
                 this.history.push({ role: 'assistant', content: response.content });
             }
@@ -600,8 +619,14 @@ export class ReplManager {
             this.mcpClients.forEach(c => c.disconnect());
             this.mcpClients = [];
             // Re-init core tools
-            this.tools = [new WriteFileTool(), new ReadFileTool(), new ListDirTool()];
-            console.log(chalk.green('All MCP clients disconnected.'));
+            this.tools = [
+                new WriteFileTool(),
+                new ReadFileTool(),
+                new ListDirTool(),
+                new SearchFileTool(),
+                new RunShellTool(),
+                new WebSearchTool()
+            ];
         } else {
             console.log(chalk.red(`Unknown MCP action: ${action}`));
         }
@@ -661,5 +686,23 @@ export class ReplManager {
             console.log(chalk.blue('\nLast message:'));
             console.log(lastMsg.content);
         }
+    }
+
+    private estimateCost(input: number, output: number): number {
+        const config = this.configManager.getConfig();
+        const provider = config.defaultProvider;
+
+        let rateIn = 0;
+        let rateOut = 0;
+
+        if (provider === 'openai') {
+            rateIn = 5.00 / 1000000;
+            rateOut = 15.00 / 1000000;
+        } else if (provider === 'gemini') {
+            rateIn = 0.35 / 1000000;
+            rateOut = 0.70 / 1000000;
+        }
+
+        return (input * rateIn) + (output * rateOut);
     }
 }
