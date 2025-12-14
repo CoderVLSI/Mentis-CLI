@@ -7,6 +7,9 @@ Mentis is a powerful terminal-based AI coding assistant that lives in your comma
 
 *   **🤖 Multi-Model Support**: Switch seamlessly between **Gemini**, **Ollama** (Local), and **OpenAI**.
 *   **🛠️ Agentic Capabilities**: Mentis can read, write, list files, and search your codebase to understand context.
+*   **🌐 Web Intelligence**: Hybrid **Google** + **DuckDuckGo** search for documentation and error fixing (Zero-Config).
+*   **🗺️ Smart Context**: Automatically maps your repository structure for better spatial awareness.
+*   **💰 Cost Awareness**: Real-time token usage and cost estimation displayed after every response.
 *   **🧠 Persistent Memory**: Auto-saves sessions (`/resume`) and supports manual checkpoints (`/checkpoint`).
 *   **🔌 MCP Support**: Full [Model Context Protocol](https://github.com/modelcontextprotocol) client. Connect external tools like databases or memory servers.
 *   **🔍 Codebase Search**: Built-in `grep` tool to find code across your project.
