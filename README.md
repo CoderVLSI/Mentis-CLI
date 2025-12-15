@@ -5,25 +5,29 @@ Mentis is a powerful terminal-based AI coding assistant that lives in your comma
 
 ## ✨ Features
 
-*   **🤖 Multi-Model Support**: Switch seamlessly between **Gemini**, **Ollama** (Local), and **OpenAI**.
+*   **🤖 Multi-Model Support**: Switch seamlessly between **Gemini**, **Ollama** (Local), **OpenAI**, and **GLM-4.6** (Z.AI Coding).
 *   **🛠️ Agentic Capabilities**: Mentis can read, write, list files, and search your codebase to understand context.
-*   **🌐 Web Intelligence**: Hybrid **Google** + **DuckDuckGo** search for documentation and error fixing (Zero-Config).
-*   **🗺️ Smart Context**: Automatically maps your repository structure for better spatial awareness.
-*   **💰 Cost Awareness**: Real-time token usage and cost estimation displayed after every response.
-*   **🧠 Persistent Memory**: Auto-saves sessions (`/resume`) and supports manual checkpoints (`/checkpoint`).
-*   **🔌 MCP Support**: Full [Model Context Protocol](https://github.com/modelcontextprotocol) client. Connect external tools like databases or memory servers.
-*   **🔍 Codebase Search**: Built-in `grep` tool to find code across your project.
-*   **🐚 Shell Integration**: Run shell commands (`/run`) and commit changes (`/commit`) directly from the agent.
-*   **🎨 Premium UI**: Beautiful terminal interface with modes (`PLAN` vs `BUILD`).
+*   **🌐 Web Intelligence**: Hybrid search for documentation and error fixing.
+*   **🗺️ Smart Context**: Automatically maps your repository structure.
+*   **🧩 Interactive & Robust CLI**:
+    *   **History**: Navigate previous commands with Up/Down arrows (persistent across sessions).
+    *   **Cancellation**: Press `Esc` to instantly stop generation.
+    *   **Markdown**: Beautiful syntax highlighting in terminal output.
+*   **💰 Cost Awareness**: Real-time token usage and cost tracking.
+*   **🧠 Persistent Memory**: Auto-saves sessions (`/resume`) and checkpoints (`/checkpoint`).
+*   **🔌 MCP Support**: Full [Model Context Protocol](https://github.com/modelcontextprotocol) client.
+*   **🔍 Codebase Search**: Built-in `grep` tool.
+*   **🐚 Shell Integration**: Run shell commands and commit changes directly.
 
 ## 🚀 Installation
 
-### From GitHub (Recommended)
-You can install Mentis directly from the repository, ensuring you always get the latest version (bypassing NPM delays).
+### Using NPM (Recommended)
+You can install Mentis globally directly from the NPM registry:
 
 ```bash
-npm install -g git+https://github.com/CoderVLSI/Mentis-CLI.git
+npm install -g @indiccoder/mentis-cli
 ```
+
 
 ### From Source (Dev)
 ```bash
