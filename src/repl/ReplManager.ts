@@ -4,6 +4,7 @@ import ora from 'ora';
 import { ConfigManager } from '../config/ConfigManager';
 import { ModelClient, ChatMessage } from '../llm/ModelInterface';
 import { OpenAIClient } from '../llm/OpenAIClient';
+
 import { ContextManager } from '../context/ContextManager';
 import { UIManager } from '../ui/UIManager';
 import { WriteFileTool, ReadFileTool, ListDirTool } from '../tools/FileTools';
@@ -54,7 +55,7 @@ export class ReplManager {
         const config = this.configManager.getConfig();
         const provider = config.defaultProvider || 'ollama';
 
-        let baseUrl: string;
+        let baseUrl: string | undefined;
         let apiKey: string;
         let model: string;
 
@@ -67,9 +68,10 @@ export class ReplManager {
             apiKey = config.openai?.apiKey || '';
             model = config.openai?.model || 'gpt-4o';
         } else if (provider === 'glm') {
-            baseUrl = 'https://open.bigmodel.cn/api/paas/v4/';
+            // Use the "Coding Plan" endpoint which supports glm-4.6 and this specific key type
+            baseUrl = config.glm?.baseUrl || 'https://api.z.ai/api/coding/paas/v4/';
             apiKey = config.glm?.apiKey || '';
-            model = config.glm?.model || 'glm-4';
+            model = config.glm?.model || 'glm-4.6';
         } else { // Default to Ollama
             baseUrl = config.ollama?.baseUrl || 'http://localhost:11434/v1';
             apiKey = 'ollama'; // Ollama typically doesn't use an API key in the same way
@@ -365,12 +367,10 @@ export class ReplManager {
                 message: 'Configuration',
                 prefix: '',
                 choices: [
-                    'View Current Config',
-                    'Switch Provider (Ollama/Gemini)',
-                    'Set Ollama URL',
-                    'Set Ollama Model',
-                    'Set Gemini API Key',
-                    'Set Gemini Model',
+                    'Show Current Configuration',
+                    'Set Active Provider',
+                    'Set API Key (for active provider)',
+                    'Set Base URL (for active provider)',
                     'Back'
                 ]
             }
@@ -378,68 +378,82 @@ export class ReplManager {
 
         if (action === 'Back') return;
 
-        if (action === 'View Current Config') {
+        if (action === 'Show Current Configuration') {
             console.log(JSON.stringify(config, null, 2));
             return;
         }
 
-        const { value } = await inquirer.prompt([
-            {
-                type: 'input',
-                name: 'value',
-                message: `Enter new value for ${action}:`,
-                prefix: '',
-            }
-        ]);
-
-        if (action === 'Set Ollama URL') {
-            this.configManager.updateConfig({
-                ollama: { ...config.ollama, baseUrl: value },
-                defaultProvider: 'ollama'
-            });
-        } else if (action === 'Set Ollama Model') {
-            this.configManager.updateConfig({ ollama: { ...config.ollama, model: value } });
-        } else if (action === 'Set Gemini API Key') {
-            this.configManager.updateConfig({
-                gemini: { ...config.gemini, apiKey: value },
-                defaultProvider: 'gemini'
-            });
-        } else if (action === 'Set Gemini Model') {
-            this.configManager.updateConfig({ gemini: { ...config.gemini, model: value } });
-        } else if (action === 'Switch Provider (Ollama/Gemini)') {
-            // value here is from the prompt, let's validate or make it a list choice next time
-            // For now assuming user types 'ollama' or 'gemini'
-            if (value === 'ollama' || value === 'gemini') {
-                this.configManager.updateConfig({ defaultProvider: value });
-            } else {
-                console.log(chalk.red('Invalid provider. Use "ollama" or "gemini".'));
-                return;
-            }
+        if (action === 'Set Active Provider') {
+            const { provider } = await inquirer.prompt([{
+                type: 'list',
+                name: 'provider',
+                message: 'Select Provider:',
+                choices: ['Gemini', 'Ollama', 'OpenAI', 'GLM']
+            }]);
+            const key = provider.toLowerCase();
+            this.configManager.updateConfig({ defaultProvider: key });
+            console.log(chalk.green(`Active provider set to: ${provider}`));
+            this.initializeClient();
+            return;
         }
 
-        console.log(chalk.green('Configuration updated and reloaded.'));
+        const currentProvider = config.defaultProvider;
+
+        if (action === 'Set API Key (for active provider)') {
+            if (currentProvider === 'ollama') {
+                console.log(chalk.yellow('Ollama typically does not require an API key.'));
+            }
+            const { value } = await inquirer.prompt([{
+                type: 'password',
+                name: 'value',
+                message: `Enter API Key for ${currentProvider}:`,
+                mask: '*'
+            }]);
+
+            const updates: any = {};
+            updates[currentProvider] = { ...((config as any)[currentProvider] || {}), apiKey: value };
+            this.configManager.updateConfig(updates);
+            console.log(chalk.green(`API Key updated for ${currentProvider}.`));
+            this.initializeClient();
+        }
+
+        if (action === 'Set Base URL (for active provider)') {
+            const defaultUrl = (config as any)[currentProvider]?.baseUrl || '';
+            const { value } = await inquirer.prompt([{
+                type: 'input',
+                name: 'value',
+                message: `Enter Base URL for ${currentProvider}:`,
+                default: defaultUrl
+            }]);
+
+            const updates: any = {};
+            updates[currentProvider] = { ...((config as any)[currentProvider] || {}), baseUrl: value };
+            this.configManager.updateConfig(updates);
+            console.log(chalk.green(`Base URL updated for ${currentProvider}.`));
+            this.initializeClient();
+        }
     }
 
     private async handleModelCommand() {
-        const { provider } = await inquirer.prompt([
-            {
-                type: 'list',
-                name: 'provider',
-                message: 'Select AI Provider:',
-                choices: ['Gemini', 'Ollama', 'OpenAI', 'GLM'],
-            }
-        ]);
-
+        const config = this.configManager.getConfig();
+        const provider = config.defaultProvider; // Use active provider
         let models: string[] = [];
-        if (provider === 'Gemini') {
+
+        if (provider === 'gemini') {
             models = ['gemini-2.5-flash', 'gemini-1.5-pro', 'gemini-1.5-flash', 'Other...'];
-        } else if (provider === 'Ollama') {
+        } else if (provider === 'ollama') {
             models = ['llama3:latest', 'deepseek-r1:latest', 'mistral:latest', 'Other...'];
-        } else if (provider === 'OpenAI') {
+        } else if (provider === 'openai') {
             models = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'Other...'];
-        } else if (provider === 'GLM') {
-            models = ['glm-4.6', 'glm-4', 'glm-4-plus', 'glm-4-air', 'glm-4-flash', 'Other...'];
+        } else if (provider === 'glm') {
+            models = ['glm-4.6', 'glm-4-plus', 'glm-4', 'glm-4-air', 'glm-4-flash', 'Other...'];
+        } else if (provider === 'anthropic') {
+            models = ['claude-3-5-sonnet-20241022', 'claude-3-opus-20240229', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307', 'glm-4.6', 'Other...'];
+        } else {
+            models = ['Other...'];
         }
+
+        console.log(chalk.blue(`Configuring model for active provider: ${chalk.bold(provider)}`));
 
         let { model } = await inquirer.prompt([
             {
@@ -459,47 +473,12 @@ export class ReplManager {
             model = customModel;
         }
 
-        let updates: any = {};
-        const config = this.configManager.getConfig();
-
-        if (provider === 'Ollama') {
-            const { baseUrl } = await inquirer.prompt([{
-                type: 'input',
-                name: 'baseUrl',
-                message: 'Enter Base URL:',
-                default: config.ollama?.baseUrl || 'http://localhost:11434/v1'
-            }]);
-            updates.ollama = { ...config.ollama, baseUrl, model };
-            updates.defaultProvider = 'ollama';
-        } else {
-            // Gemini or OpenAI or GLM
-            let currentKey = '';
-            if (provider === 'Gemini') currentKey = config.gemini?.apiKey || '';
-            else if (provider === 'GLM') currentKey = config.glm?.apiKey || '';
-            else currentKey = config.openai?.apiKey || '';
-            const { apiKey } = await inquirer.prompt([{
-                type: 'password',
-                name: 'apiKey',
-                message: `Enter ${provider} API Key:`,
-                mask: '*',
-                default: currentKey
-            }]);
-
-            if (provider === 'Gemini') {
-                updates.gemini = { ...config.gemini, apiKey, model };
-                updates.defaultProvider = 'gemini';
-            } else if (provider === 'GLM') {
-                updates.glm = { ...config.glm, apiKey, model };
-                updates.defaultProvider = 'glm';
-            } else {
-                updates.openai = { ...config.openai, apiKey, model };
-                updates.defaultProvider = 'openai';
-            }
-        }
+        const updates: any = {};
+        updates[provider] = { ...((config as any)[provider] || {}), model: model };
 
         this.configManager.updateConfig(updates);
         this.initializeClient();
-        console.log(chalk.green(`\nSuccessfully connected to ${provider} (${model})!`));
+        console.log(chalk.green(`\nModel set to ${model} for ${provider}!`));
     }
 
     private async handleConnectCommand(args: string[]) {
