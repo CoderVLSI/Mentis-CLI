@@ -256,43 +256,22 @@ export class ReplManager {
                 });
 
                 // Execute tools
-                for (const toolCall of response.tool_calls) {
+                // Separate interactive and non-interactive tools
+                const interactiveCalls = response.tool_calls.filter((tc: any) => tc.function.name === 'write_file');
+                const parallelCalls = response.tool_calls.filter((tc: any) => tc.function.name !== 'write_file');
+
+                // Execute parallel tools first
+                const parallelPromises = parallelCalls.map(async (toolCall: any) => {
                     const toolName = toolCall.function.name;
                     const toolArgsStr = toolCall.function.arguments;
                     const toolArgs = JSON.parse(toolArgsStr);
 
-                    // Truncate long arguments for display to keep UI clean
+                    // Truncate long arguments for display
                     let displayArgs = toolArgsStr;
                     if (displayArgs.length > 100) {
                         displayArgs = displayArgs.substring(0, 100) + '...';
                     }
                     console.log(chalk.dim(`  [Action] ${toolName}(${displayArgs})`));
-
-                    // Safety check for write_file
-                    if (toolName === 'write_file') {
-                        spinner.stop(); // Stop spinner to allow input
-                        const { confirm } = await inquirer.prompt([
-                            {
-                                type: 'confirm',
-                                name: 'confirm',
-                                message: `Allow writing to ${chalk.yellow(toolArgs.filePath)}?`,
-                                default: true
-                            }
-                        ]);
-
-                        if (!confirm) {
-                            this.history.push({
-                                role: 'tool',
-                                tool_call_id: toolCall.id,
-                                name: toolName,
-                                content: 'Error: User rejected write operation.'
-                            });
-                            console.log(chalk.red('  Action cancelled by user.'));
-                            spinner = ora('Thinking (processing rejection)...').start(); // Restart spinner
-                            continue;
-                        }
-                        spinner = ora('Executing...').start(); // Restart spinner
-                    }
 
                     const tool = this.tools.find(t => t.name === toolName);
                     let result = '';
@@ -307,12 +286,59 @@ export class ReplManager {
                         result = `Error: Tool ${toolName} not found.`;
                     }
 
-                    // Stop spinner before next loop iteration or re-starting
-                    if (spinner.isSpinning) {
-                        spinner.stop();
+                    return {
+                        role: 'tool',
+                        tool_call_id: toolCall.id,
+                        name: toolName,
+                        content: result
+                    };
+                });
+
+                // Wait for all parallel tools
+                const parallelResults = await Promise.all(parallelPromises);
+                parallelResults.forEach((res: any) => this.history.push(res));
+
+                // Execute interactive tools sequentially
+                for (const toolCall of interactiveCalls) {
+                    const toolName = toolCall.function.name;
+                    const toolArgsStr = toolCall.function.arguments;
+                    const toolArgs = JSON.parse(toolArgsStr);
+
+                    console.log(chalk.dim(`  [Action] ${toolName}(${toolArgs.filePath})`)); // simplified log for write_file
+
+                    spinner.stop(); // Stop spinner for input
+                    const { confirm } = await inquirer.prompt([
+                        {
+                            type: 'confirm',
+                            name: 'confirm',
+                            message: `Allow writing to ${chalk.yellow(toolArgs.filePath)}?`,
+                            default: true
+                        }
+                    ]);
+
+                    if (!confirm) {
+                        this.history.push({
+                            role: 'tool',
+                            tool_call_id: toolCall.id,
+                            name: toolName,
+                            content: 'Error: User rejected write operation.'
+                        });
+                        console.log(chalk.red('  Action cancelled by user.'));
+                        spinner = ora('Thinking...').start();
+                        continue;
+                    }
+                    spinner = ora('Executing...').start();
+
+                    const tool = this.tools.find(t => t.name === toolName);
+                    let result = '';
+                    if (tool) {
+                        try {
+                            result = await tool.execute(toolArgs);
+                        } catch (e: any) {
+                            result = `Error: ${e.message}`;
+                        }
                     }
 
-                    // Add result to history
                     this.history.push({
                         role: 'tool',
                         tool_call_id: toolCall.id,
@@ -321,7 +347,8 @@ export class ReplManager {
                     });
                 }
 
-                spinner = ora('Thinking (processing tools)...').start();
+                // Restart spinner for next turn
+                if (!spinner.isSpinning) spinner = ora('Thinking (processing tools)...').start();
 
                 // Get next response
                 response = await this.modelClient.chat(this.history, this.tools.map(t => ({
