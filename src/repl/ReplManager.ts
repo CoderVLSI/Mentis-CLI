@@ -11,6 +11,7 @@ import { SearchFileTool } from '../tools/SearchTools';
 import { PersistentShellTool } from '../tools/PersistentShellTool';
 import { PersistentShell } from './PersistentShell';
 import { WebSearchTool } from '../tools/WebSearchTool';
+import { GitStatusTool, GitDiffTool, GitCommitTool, GitPushTool, GitPullTool } from '../tools/GitTools';
 import { Tool } from '../tools/Tool';
 import { McpClient } from '../mcp/McpClient';
 import { CheckpointManager } from '../checkpoint/CheckpointManager';
@@ -37,7 +38,12 @@ export class ReplManager {
             new ListDirTool(),
             new SearchFileTool(),
             new PersistentShellTool(this.shell),
-            new WebSearchTool()
+            new WebSearchTool(),
+            new GitStatusTool(),
+            new GitDiffTool(),
+            new GitCommitTool(),
+            new GitPushTool(),
+            new GitPullTool()
         ];
         // Default to Ollama if not specified, assuming compatible endpoint
         this.initializeClient();
@@ -630,7 +636,12 @@ export class ReplManager {
                 new ListDirTool(),
                 new SearchFileTool(),
                 new PersistentShellTool(this.shell),
-                new WebSearchTool()
+                new WebSearchTool(),
+                new GitStatusTool(),
+                new GitDiffTool(),
+                new GitCommitTool(),
+                new GitPushTool(),
+                new GitPullTool()
             ];
         } else {
             console.log(chalk.red(`Unknown MCP action: ${action}`));
