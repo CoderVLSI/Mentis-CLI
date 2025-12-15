@@ -15,7 +15,14 @@ import { WebSearchTool } from '../tools/WebSearchTool';
 import { GitStatusTool, GitDiffTool, GitCommitTool, GitPushTool, GitPullTool } from '../tools/GitTools';
 import { Tool } from '../tools/Tool';
 import { McpClient } from '../mcp/McpClient';
+
 import { CheckpointManager } from '../checkpoint/CheckpointManager';
+import * as readline from 'readline';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+
+const HISTORY_FILE = path.join(os.homedir(), '.mentis_history');
 
 export class ReplManager {
     private configManager: ConfigManager;
@@ -87,24 +94,64 @@ export class ReplManager {
         UIManager.displayLogo();
         UIManager.displayWelcome();
 
+        // Load History
+        let commandHistory: string[] = [];
+        if (fs.existsSync(HISTORY_FILE)) {
+            try {
+                commandHistory = fs.readFileSync(HISTORY_FILE, 'utf-8').split('\n').filter(Boolean).reverse(); // readline expects newest first? No, newest is usually 0? Check.
+                // readline.history is [newest, ..., oldest]
+                // If I read from file where newest is at bottom (standard append), I need to reverse it.
+                // Let's assume standard file: line 1 (old), line 2 (new).
+                // So split -> reverse -> history.
+            } catch (e) { }
+        }
+
         while (true) {
-            // Simple prompt styling for now as inquirer is limited in 'prefix' styling without custom prompts
-            // We can simulate the "box" look by printing a header before the prompt if we wanted, 
-            // but let's stick to a clean prompt first.
             UIManager.printSeparator();
-            console.log(chalk.dim(`  /help for help | Model: ${chalk.cyan(this.currentModelName)}`));
+            // console.log(chalk.dim(`  /help for help | Model: ${chalk.cyan(this.currentModelName)}`));
+            // Removed redundancy to keep CLI clean, prompt has info? No, prompt is minimal.
 
-            const modeLabel = this.mode === 'PLAN' ? chalk.bgBlue.black(' PLAN ') : chalk.bgYellow.black(' BUILD ');
+            const modeLabel = this.mode === 'PLAN' ? chalk.magenta('PLAN') : chalk.blue('BUILD');
+            const promptText = `${modeLabel} ${chalk.cyan('>')}`;
 
-            const { input } = await inquirer.prompt([
-                {
-                    type: 'input',
-                    name: 'input',
-                    message: `${modeLabel} ${chalk.cyan('>')}`,
-                },
-            ]);
+            // Use readline for basic input to support history
+            const answer = await new Promise<string>((resolve) => {
+                const rl = readline.createInterface({
+                    input: process.stdin,
+                    output: process.stdout,
+                    history: commandHistory,
+                    historySize: 1000,
+                    prompt: promptText + ' '
+                });
 
-            if (!input.trim()) continue;
+                rl.prompt();
+
+                rl.on('line', (line) => {
+                    rl.close();
+                    resolve(line);
+                });
+            });
+
+            // Update history manually or grab from rl? 
+            // rl.history gets updated when user hits enter.
+            // But we closed rl. We should manually save the input to our tracking array and file.
+            const input = answer.trim();
+
+            if (input) {
+                // Update in-memory history (for next readline instance)
+                // Readline history has newest at 0.
+                // Avoid duplicates if needed, but standard shell keeps them.
+                if (commandHistory[0] !== input) {
+                    commandHistory.unshift(input);
+                }
+
+                // Append to file (as standard log, so append at end)
+                try {
+                    fs.appendFileSync(HISTORY_FILE, input + '\n');
+                } catch (e) { }
+            }
+
+            if (!answer.trim()) continue; // Skip empty but allow it to close readline loop
 
             if (input.startsWith('/')) {
                 await this.handleCommand(input);
