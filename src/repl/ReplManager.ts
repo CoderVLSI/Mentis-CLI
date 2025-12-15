@@ -342,6 +342,7 @@ export class ReplManager {
                         if (process.stdin.isTTY) {
                             process.stdin.removeListener('keypress', keyListener);
                             process.stdin.setRawMode(false);
+                            process.stdin.pause(); // Explicitly pause before inquirer
                         }
 
                         spinner.stop(); // Stop spinner to allow input
@@ -358,8 +359,8 @@ export class ReplManager {
                         // Resume cancellation listener
                         if (process.stdin.isTTY) {
                             process.stdin.setRawMode(true);
+                            process.stdin.resume(); // Explicitly resume
                             process.stdin.on('keypress', keyListener);
-                            process.stdin.resume();
                         }
 
                         if (!confirm) {
@@ -370,7 +371,9 @@ export class ReplManager {
                                 content: 'Error: User rejected write operation.'
                             });
                             console.log(chalk.red('  Action cancelled by user.'));
-                            spinner = ora('Thinking (processing rejection)...').start();
+                            // Do not restart spinner here. Let the outer loop logic or next step handle it.
+                            // If we continue, we go to next tool or finish loop.
+                            // If finished, lines following loop will start spinner.
                             continue;
                         }
                         spinner = ora('Executing...').start();
