@@ -444,7 +444,10 @@ export class ReplManager {
             }
         } catch (error: any) {
             spinner.fail('Error getting response from model.');
-            console.error(error.message); // Simplified error logging
+            console.error(chalk.red(error.message));
+            if (error.response && error.response.data) {
+                console.error(chalk.dim(JSON.stringify(error.response.data, null, 2)));
+            }
         }
     }
 
@@ -609,13 +612,22 @@ export class ReplManager {
             else if (lowerProvider === 'groq') currentKey = config.groq?.apiKey || '';
             else if (lowerProvider === 'openrouter') currentKey = config.openrouter?.apiKey || '';
 
-            const { apiKey } = await inquirer.prompt([{
-                type: 'password',
-                name: 'apiKey',
-                message: `Enter ${provider} API Key:`,
-                mask: '*',
-                default: currentKey
-            }]);
+            let apiKey = currentKey;
+
+            // Only prompt if we don't have a key, OR if the user explicitly might want to change it?
+            // User requested to NOT type it every time. So if we have it, we keep it.
+            // If they want to change it, they can use /config or /connect.
+            if (!currentKey) {
+                const answer = await inquirer.prompt([{
+                    type: 'password',
+                    name: 'apiKey',
+                    message: `Enter ${provider} API Key:`,
+                    mask: '*',
+                }]);
+                apiKey = answer.apiKey;
+            } else {
+                console.log(chalk.dim(`Using existing API key for ${provider}. Use /config to change.`));
+            }
 
             if (lowerProvider === 'gemini') {
                 updates.gemini = { ...config.gemini, apiKey, model };
