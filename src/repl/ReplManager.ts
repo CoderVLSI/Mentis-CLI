@@ -24,6 +24,7 @@ import { TaskTool } from '../tools/TaskTool';
 import { PdfReaderTool, ExcelReaderTool, JupyterReaderTool } from '../tools/SpecializedIO';
 import { ScreenshotTool } from '../tools/VisionTools';
 import { RipgrepTool } from '../tools/RipgrepTool';
+import { AnthropicClient } from '../llm/AnthropicClient';
 
 import { marked } from 'marked';
 import TerminalRenderer from 'marked-terminal';
@@ -102,18 +103,32 @@ export class ReplManager {
             baseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/';
             apiKey = config.gemini?.apiKey || '';
             model = config.gemini?.model || 'gemini-2.5-flash';
+            this.modelClient = new OpenAIClient(baseUrl, apiKey, model);
         } else if (provider === 'openai') {
             baseUrl = config.openai?.baseUrl || 'https://api.openai.com/v1';
             apiKey = config.openai?.apiKey || '';
             model = config.openai?.model || 'gpt-4o';
+            this.modelClient = new OpenAIClient(baseUrl, apiKey, model);
+        } else if (provider === 'anthropic') {
+            apiKey = config.anthropic?.apiKey || '';
+            model = config.anthropic?.model || 'claude-3-opus-20240229';
+            this.modelClient = new AnthropicClient(apiKey, model);
+        } else if (provider === 'groq') {
+            baseUrl = 'https://api.groq.com/openai/v1';
+            apiKey = config.groq?.apiKey || '';
+            model = config.groq?.model || 'llama3-70b-8192';
+            this.modelClient = new OpenAIClient(baseUrl, apiKey, model);
+        } else if (provider === 'openrouter') {
+            baseUrl = 'https://openrouter.ai/api/v1';
+            apiKey = config.openrouter?.apiKey || '';
+            model = config.openrouter?.model || 'anthropic/claude-3-opus';
+            this.modelClient = new OpenAIClient(baseUrl, apiKey, model);
         } else { // Default to Ollama
             baseUrl = config.ollama?.baseUrl || 'http://localhost:11434/v1';
-            apiKey = 'ollama'; // Ollama typically doesn't use an API key in the same way
+            apiKey = 'ollama';
             model = config.ollama?.model || 'llama3:latest';
+            this.modelClient = new OpenAIClient(baseUrl, apiKey, model);
         }
-
-        this.modelClient = new OpenAIClient(baseUrl, apiKey, model);
-        // console.log(chalk.dim(`Initialized ${provider} client with model ${model}`));
     }
 
     public async start() {

@@ -17,6 +17,18 @@ interface MentisConfig {
         apiKey?: string;
         model?: string;
     };
+    anthropic?: {
+        apiKey?: string;
+        model?: string;
+    };
+    groq?: {
+        apiKey?: string;
+        model?: string;
+    };
+    openrouter?: {
+        apiKey?: string;
+        model?: string;
+    };
 }
 
 export class ConfigManager {
@@ -33,6 +45,15 @@ export class ConfigManager {
             },
             gemini: {
                 model: 'gemini-2.5-flash'
+            },
+            anthropic: {
+                model: 'claude-3-opus-20240229'
+            },
+            groq: {
+                model: 'llama3-70b-8192'
+            },
+            openrouter: {
+                model: 'anthropic/claude-3-opus' // Example
             }
         };
         this.loadConfig();

@@ -22,6 +22,7 @@
   "author": "CoderVLSI",
   "license": "ISC",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.2",
     "@types/marked": "^5.0.2",
     "@types/marked-terminal": "^6.1.1",
     "@types/pdf-parse": "^1.1.5",
