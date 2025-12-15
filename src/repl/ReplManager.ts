@@ -458,11 +458,13 @@ export class ReplManager {
                 prefix: '',
                 choices: [
                     'View Current Config',
-                    'Switch Provider (Ollama/Gemini)',
-                    'Set Ollama URL',
-                    'Set Ollama Model',
-                    'Set Gemini API Key',
-                    'Set Gemini Model',
+                    'Switch Provider',
+                    'Set Ollama Config',
+                    'Set Gemini Config',
+                    'Set OpenAI Config',
+                    'Set Anthropic Config',
+                    'Set Groq Config',
+                    'Set OpenRouter Config',
                     'Back'
                 ]
             }
@@ -475,41 +477,70 @@ export class ReplManager {
             return;
         }
 
-        const { value } = await inquirer.prompt([
-            {
-                type: 'input',
-                name: 'value',
-                message: `Enter new value for ${action}:`,
-                prefix: '',
-            }
-        ]);
+        if (action === 'Switch Provider') {
+            const { provider } = await inquirer.prompt([{
+                type: 'list',
+                name: 'provider',
+                message: 'Select Provider:',
+                choices: ['ollama', 'gemini', 'openai', 'anthropic', 'groq', 'openrouter']
+            }]);
+            this.configManager.updateConfig({ defaultProvider: provider });
+            this.initializeClient();
+            console.log(chalk.green(`Switched to ${provider}`));
+            return;
+        }
 
-        if (action === 'Set Ollama URL') {
-            this.configManager.updateConfig({
-                ollama: { ...config.ollama, baseUrl: value },
-                defaultProvider: 'ollama'
-            });
-        } else if (action === 'Set Ollama Model') {
-            this.configManager.updateConfig({ ollama: { ...config.ollama, model: value } });
-        } else if (action === 'Set Gemini API Key') {
-            this.configManager.updateConfig({
-                gemini: { ...config.gemini, apiKey: value },
-                defaultProvider: 'gemini'
-            });
-        } else if (action === 'Set Gemini Model') {
-            this.configManager.updateConfig({ gemini: { ...config.gemini, model: value } });
-        } else if (action === 'Switch Provider (Ollama/Gemini)') {
-            // value here is from the prompt, let's validate or make it a list choice next time
-            // For now assuming user types 'ollama' or 'gemini'
-            if (value === 'ollama' || value === 'gemini') {
-                this.configManager.updateConfig({ defaultProvider: value });
-            } else {
-                console.log(chalk.red('Invalid provider. Use "ollama" or "gemini".'));
-                return;
+        // Generic handling for "Set X Config"
+        let targetProvider = '';
+        if (action.includes('Ollama')) targetProvider = 'ollama';
+        else if (action.includes('Gemini')) targetProvider = 'gemini';
+        else if (action.includes('OpenAI')) targetProvider = 'openai';
+        else if (action.includes('Anthropic')) targetProvider = 'anthropic';
+        else if (action.includes('Groq')) targetProvider = 'groq';
+        else if (action.includes('OpenRouter')) targetProvider = 'openrouter';
+
+        if (targetProvider) {
+            // Type safety for provider config access
+            const providerConfig = (config as any)[targetProvider] || {};
+
+            const answers = await inquirer.prompt([
+                {
+                    type: 'input',
+                    name: 'key',
+                    message: `API Key (leave empty to keep current):`,
+                    when: targetProvider !== 'ollama'
+                },
+                {
+                    type: 'input',
+                    name: 'url',
+                    message: `Base URL (leave empty to keep current):`,
+                    default: providerConfig.baseUrl, // Only applicable for some, but harmless
+                    when: targetProvider === 'ollama' || targetProvider === 'openai'
+                },
+                {
+                    type: 'input',
+                    name: 'model',
+                    message: `Model (leave empty to keep current):`,
+                    default: providerConfig.model
+                }
+            ]);
+
+            const updates: any = {};
+            updates[targetProvider] = { ...providerConfig };
+
+            if (answers.key) updates[targetProvider].apiKey = answers.key;
+            if (answers.url) updates[targetProvider].baseUrl = answers.url;
+            if (answers.model) updates[targetProvider].model = answers.model;
+
+            this.configManager.updateConfig(updates);
+
+            // If we just updated the active provider, we should re-init
+            if (config.defaultProvider === targetProvider) {
+                this.initializeClient();
             }
         }
 
-        console.log(chalk.green('Configuration updated and reloaded.'));
+        console.log(chalk.green('Configuration updated.'));
     }
 
     private async handleModelCommand() {
@@ -518,7 +549,7 @@ export class ReplManager {
                 type: 'list',
                 name: 'provider',
                 message: 'Select AI Provider:',
-                choices: ['Gemini', 'Ollama', 'OpenAI'],
+                choices: ['Gemini', 'Ollama', 'OpenAI', 'Anthropic', 'Groq', 'OpenRouter'],
             }
         ]);
 
@@ -529,6 +560,12 @@ export class ReplManager {
             models = ['llama3:latest', 'deepseek-r1:latest', 'mistral:latest', 'Other...'];
         } else if (provider === 'OpenAI') {
             models = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'Other...'];
+        } else if (provider === 'Anthropic') {
+            models = ['claude-3-opus-20240229', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307', 'Other...'];
+        } else if (provider === 'Groq') {
+            models = ['llama3-70b-8192', 'mixtral-8x7b-32768', 'Other...'];
+        } else if (provider === 'OpenRouter') {
+            models = ['anthropic/claude-3-opus', 'openai/gpt-4o', 'google/gemini-pro-1.5', 'Other...'];
         }
 
         let { model } = await inquirer.prompt([
@@ -551,8 +588,9 @@ export class ReplManager {
 
         let updates: any = {};
         const config = this.configManager.getConfig();
+        const lowerProvider = provider.toLowerCase();
 
-        if (provider === 'Ollama') {
+        if (lowerProvider === 'ollama') {
             const { baseUrl } = await inquirer.prompt([{
                 type: 'input',
                 name: 'baseUrl',
@@ -562,8 +600,15 @@ export class ReplManager {
             updates.ollama = { ...config.ollama, baseUrl, model };
             updates.defaultProvider = 'ollama';
         } else {
-            // Gemini or OpenAI
-            const currentKey = provider === 'Gemini' ? config.gemini?.apiKey : config.openai?.apiKey;
+            // All other providers use API keys
+            let currentKey = '';
+            // Safely access config based on provider
+            if (lowerProvider === 'gemini') currentKey = config.gemini?.apiKey || '';
+            else if (lowerProvider === 'openai') currentKey = config.openai?.apiKey || '';
+            else if (lowerProvider === 'anthropic') currentKey = config.anthropic?.apiKey || '';
+            else if (lowerProvider === 'groq') currentKey = config.groq?.apiKey || '';
+            else if (lowerProvider === 'openrouter') currentKey = config.openrouter?.apiKey || '';
+
             const { apiKey } = await inquirer.prompt([{
                 type: 'password',
                 name: 'apiKey',
@@ -572,13 +617,18 @@ export class ReplManager {
                 default: currentKey
             }]);
 
-            if (provider === 'Gemini') {
+            if (lowerProvider === 'gemini') {
                 updates.gemini = { ...config.gemini, apiKey, model };
-                updates.defaultProvider = 'gemini';
-            } else {
+            } else if (lowerProvider === 'openai') {
                 updates.openai = { ...config.openai, apiKey, model };
-                updates.defaultProvider = 'openai';
+            } else if (lowerProvider === 'anthropic') {
+                updates.anthropic = { ...config.anthropic, apiKey, model };
+            } else if (lowerProvider === 'groq') {
+                updates.groq = { ...config.groq, apiKey, model };
+            } else if (lowerProvider === 'openrouter') {
+                updates.openrouter = { ...config.openrouter, apiKey, model };
             }
+            updates.defaultProvider = lowerProvider;
         }
 
         this.configManager.updateConfig(updates);
