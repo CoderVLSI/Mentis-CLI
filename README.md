@@ -18,12 +18,14 @@ Mentis is a powerful terminal-based AI coding assistant that lives in your comma
 
 ## 🚀 Installation
 
-### From NPM (Recommended)
+### From GitHub (Recommended)
+You can install Mentis directly from the repository, ensuring you always get the latest version (bypassing NPM delays).
+
 ```bash
-npm install -g mentis-cli
+npm install -g git+https://github.com/CoderVLSI/Mentis-CLI.git
 ```
 
-### From Source
+### From Source (Dev)
 ```bash
 git clone https://github.com/CoderVLSI/Mentis-CLI.git
 cd Mentis-CLI
