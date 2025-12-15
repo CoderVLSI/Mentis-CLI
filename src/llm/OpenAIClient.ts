@@ -49,48 +49,6 @@ export class OpenAIClient implements ModelClient {
                 }
             };
         } catch (error: any) {
-            // Check for OpenRouter "No endpoints found that support tool use" error (404)
-            if (error.response && error.response.status === 404 &&
-                JSON.stringify(error.response.data).includes('tool use')) {
-
-                console.log('Model does not support tools. Retrying without tools...');
-
-                try {
-                    // Retry without tools
-                    const requestBodyNoTools: any = {
-                        model: this.model,
-                        messages: [
-                            { role: 'system', content: 'You are Mentis, an expert AI coding assistant. You help users write code, debug issues, and explain concepts. You are concise, accurate, and professional.' },
-                            ...messages
-                        ],
-                        temperature: 0.7,
-                    };
-
-                    const response = await axios.post(
-                        `${this.baseUrl}/chat/completions`,
-                        requestBodyNoTools,
-                        {
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${this.apiKey}`,
-                            },
-                        }
-                    );
-
-                    return {
-                        content: response.data.choices[0].message.content,
-                        usage: {
-                            input_tokens: response.data.usage?.prompt_tokens || 0,
-                            output_tokens: response.data.usage?.completion_tokens || 0
-                        }
-                    };
-
-                } catch (retryError: any) {
-                    console.error('Error calling model API (Retry):', retryError.message);
-                    throw retryError;
-                }
-            }
-
             console.error('Error calling model API:', error.message);
             if (error.response) {
                 console.error('Response data:', error.response.data);

@@ -34,7 +34,7 @@ export class WriteFileTool implements Tool {
 
 export class ReadFileTool implements Tool {
     name = 'read_file';
-    description = 'Read content from a file. Supports offset and limit for partial reading.';
+    description = 'Read content from a file.';
     parameters = {
         type: 'object',
         properties: {
@@ -42,32 +42,17 @@ export class ReadFileTool implements Tool {
                 type: 'string',
                 description: 'The path to the file to read',
             },
-            offset: {
-                type: 'number',
-                description: 'Character offset to start reading from (default: 0)'
-            },
-            limit: {
-                type: 'number',
-                description: 'Number of characters to read (default: all)'
-            }
         },
         required: ['filePath'],
     };
 
-    async execute(args: { filePath: string, offset?: number, limit?: number }): Promise<string> {
+    async execute(args: { filePath: string }): Promise<string> {
         try {
             const absolutePath = path.resolve(args.filePath);
             if (!await fs.pathExists(absolutePath)) {
                 return `Error: File not found at ${args.filePath}`;
             }
             const content = await fs.readFile(absolutePath, 'utf-8');
-
-            if (args.offset !== undefined || args.limit !== undefined) {
-                const start = args.offset || 0;
-                const end = args.limit ? start + args.limit : undefined;
-                return content.slice(start, end);
-            }
-
             return content;
         } catch (error: any) {
             return `Error reading file: ${error.message}`;

@@ -12,32 +12,15 @@ import { PersistentShellTool } from '../tools/PersistentShellTool';
 import { PersistentShell } from './PersistentShell';
 import { WebSearchTool } from '../tools/WebSearchTool';
 import { GitStatusTool, GitDiffTool, GitCommitTool, GitPushTool, GitPullTool } from '../tools/GitTools';
-import { EditTool } from '../tools/EditTool';
-import { GlobTool } from '../tools/GlobTool';
 import { Tool } from '../tools/Tool';
 import { McpClient } from '../mcp/McpClient';
 import { CheckpointManager } from '../checkpoint/CheckpointManager';
-import { ProcessManager } from '../sys/ProcessManager';
-import { BackgroundProcessTool } from '../tools/BackgroundProcessTool';
-import { TaskManager } from '../agent/TaskManager';
-import { TaskTool } from '../tools/TaskTool';
-import { PdfReaderTool, ExcelReaderTool, JupyterReaderTool } from '../tools/SpecializedIO';
-import { ScreenshotTool } from '../tools/VisionTools';
-import { RipgrepTool } from '../tools/RipgrepTool';
-import { AnthropicClient } from '../llm/AnthropicClient';
-
-import { marked } from 'marked';
-import TerminalRenderer from 'marked-terminal';
-import highlight from 'cli-highlight';
-import boxen from 'boxen';
 
 export class ReplManager {
     private configManager: ConfigManager;
     private modelClient!: ModelClient;
     private contextManager: ContextManager;
     private checkpointManager: CheckpointManager;
-    private processManager: ProcessManager;
-    private taskManager: TaskManager;
     private history: ChatMessage[] = [];
     private mode: 'PLAN' | 'BUILD' = 'BUILD';
     private tools: Tool[] = [];
@@ -49,22 +32,6 @@ export class ReplManager {
         this.contextManager = new ContextManager();
         this.checkpointManager = new CheckpointManager();
         this.shell = new PersistentShell();
-        this.processManager = new ProcessManager();
-        this.taskManager = new TaskManager();
-
-        // Setup Markdown Rendering
-        marked.setOptions({
-            // Define custom renderer
-            renderer: new TerminalRenderer({
-                code: (code: any, lang: any) => {
-                    return highlight(code, {
-                        language: lang || 'plaintext',
-                        ignoreIllegals: true
-                    });
-                }
-            } as any) as any
-        });
-
         this.tools = [
             new WriteFileTool(),
             new ReadFileTool(),
@@ -76,16 +43,7 @@ export class ReplManager {
             new GitDiffTool(),
             new GitCommitTool(),
             new GitPushTool(),
-            new GitPullTool(),
-            new EditTool(),
-            new GlobTool(),
-            new BackgroundProcessTool(this.processManager),
-            new TaskTool(this.taskManager),
-            new PdfReaderTool(),
-            new ExcelReaderTool(),
-            new JupyterReaderTool(),
-            new ScreenshotTool(),
-            new RipgrepTool()
+            new GitPullTool()
         ];
         // Default to Ollama if not specified, assuming compatible endpoint
         this.initializeClient();
@@ -103,37 +61,18 @@ export class ReplManager {
             baseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/';
             apiKey = config.gemini?.apiKey || '';
             model = config.gemini?.model || 'gemini-2.5-flash';
-            this.modelClient = new OpenAIClient(baseUrl, apiKey, model);
         } else if (provider === 'openai') {
             baseUrl = config.openai?.baseUrl || 'https://api.openai.com/v1';
             apiKey = config.openai?.apiKey || '';
             model = config.openai?.model || 'gpt-4o';
-            this.modelClient = new OpenAIClient(baseUrl, apiKey, model);
-        } else if (provider === 'anthropic') {
-            apiKey = config.anthropic?.apiKey || '';
-            model = config.anthropic?.model || 'claude-3-opus-20240229';
-            this.modelClient = new AnthropicClient(apiKey, model);
-        } else if (provider === 'groq') {
-            baseUrl = 'https://api.groq.com/openai/v1';
-            apiKey = config.groq?.apiKey || '';
-            model = config.groq?.model || 'llama3-70b-8192';
-            this.modelClient = new OpenAIClient(baseUrl, apiKey, model);
-        } else if (provider === 'openrouter') {
-            baseUrl = 'https://openrouter.ai/api/v1';
-            apiKey = config.openrouter?.apiKey || '';
-            model = config.openrouter?.model || 'anthropic/claude-3-opus';
-            this.modelClient = new OpenAIClient(baseUrl, apiKey, model);
-        } else if (provider === 'llamacpp') {
-            baseUrl = config.llamacpp?.baseUrl || 'http://localhost:8080/v1';
-            apiKey = config.llamacpp?.apiKey || 'sx-llamacpp'; // Some servers require a key, defaults to dummy often
-            model = config.llamacpp?.model || 'default';
-            this.modelClient = new OpenAIClient(baseUrl, apiKey, model);
         } else { // Default to Ollama
             baseUrl = config.ollama?.baseUrl || 'http://localhost:11434/v1';
-            apiKey = 'ollama';
+            apiKey = 'ollama'; // Ollama typically doesn't use an API key in the same way
             model = config.ollama?.model || 'llama3:latest';
-            this.modelClient = new OpenAIClient(baseUrl, apiKey, model);
         }
+
+        this.modelClient = new OpenAIClient(baseUrl, apiKey, model);
+        // console.log(chalk.dim(`Initialized ${provider} client with model ${model}`));
     }
 
     public async start() {
@@ -145,13 +84,6 @@ export class ReplManager {
             // We can simulate the "box" look by printing a header before the prompt if we wanted, 
             // but let's stick to a clean prompt first.
             UIManager.printSeparator();
-
-            // Display active task if any
-            const activeTask = this.taskManager.getActiveTask();
-            if (activeTask) {
-                console.log(chalk.blue(`  [Active Task: ${activeTask.description}]`));
-            }
-
             console.log(chalk.dim('  ? for shortcuts'));
 
             const modeLabel = this.mode === 'PLAN' ? chalk.bgBlue.black(' PLAN ') : chalk.bgYellow.black(' BUILD ');
@@ -188,6 +120,8 @@ export class ReplManager {
                 console.log('  /config  - Configure settings');
                 console.log('  /add <file> - Add file to context');
                 console.log('  /drop <file> - Remove file from context');
+                console.log('  /plan    - Switch to PLAN mode');
+                console.log('  /build   - Switch to BUILD mode');
                 console.log('  /plan    - Switch to PLAN mode');
                 console.log('  /build   - Switch to BUILD mode');
                 console.log('  /model   - Interactively select Provider & Model');
@@ -259,7 +193,6 @@ export class ReplManager {
                 // Auto-save on exit
                 this.checkpointManager.save('latest', this.history, this.contextManager.getFiles());
                 this.shell.kill(); // Kill the shell process
-                this.processManager.killAll(); // Kill background processes
                 console.log(chalk.green('Session saved. Goodbye!'));
                 process.exit(0);
                 break;
@@ -285,13 +218,12 @@ export class ReplManager {
             fullInput = `${context}\n\nUser Question: ${fullInput}`;
         }
 
-        // Inject Active Tasks into context silently if needed, or just rely on agent checking.
-        // For better proactivity, let's append active tasks to the system prompt part of the message.
-        const activeTasks = this.taskManager.listTasks().filter(t => t.status === 'in_progress' || t.status === 'pending');
-        if (activeTasks.length > 0) {
-            const taskContext = activeTasks.map(t => `- [${t.status.toUpperCase()}] ${t.description} (ID: ${t.id})`).join('\n');
-            fullInput += `\n\n[SYSTEM: Current Active/Pending Tasks from TaskManager:\n${taskContext}\n]`;
-        }
+        // We push the raw user input for display/history sanity, but send the mode instruction to the model
+        // Actually, for simple stateless/append-only history, let's append it invisibly or just append to content.
+        // Let's modify the last message specifically for the API call or just append it content-wise.
+        // To keep it simple: Append to the content we push. User will see it in history? 
+        // Better: Prepend system instruction to the 'messages' array for this turn if possible, or just append to user message.
+        // Appending to user message is easiest for compatibility.
 
         this.history.push({ role: 'user', content: fullInput });
 
@@ -320,22 +252,43 @@ export class ReplManager {
                 });
 
                 // Execute tools
-                // Separate interactive and non-interactive tools
-                const interactiveCalls = response.tool_calls.filter((tc: any) => tc.function.name === 'write_file');
-                const parallelCalls = response.tool_calls.filter((tc: any) => tc.function.name !== 'write_file');
-
-                // Execute parallel tools first
-                const parallelPromises = parallelCalls.map(async (toolCall: any) => {
+                for (const toolCall of response.tool_calls) {
                     const toolName = toolCall.function.name;
                     const toolArgsStr = toolCall.function.arguments;
                     const toolArgs = JSON.parse(toolArgsStr);
 
-                    // Truncate long arguments for display
+                    // Truncate long arguments for display to keep UI clean
                     let displayArgs = toolArgsStr;
                     if (displayArgs.length > 100) {
                         displayArgs = displayArgs.substring(0, 100) + '...';
                     }
                     console.log(chalk.dim(`  [Action] ${toolName}(${displayArgs})`));
+
+                    // Safety check for write_file
+                    if (toolName === 'write_file') {
+                        spinner.stop(); // Stop spinner to allow input
+                        const { confirm } = await inquirer.prompt([
+                            {
+                                type: 'confirm',
+                                name: 'confirm',
+                                message: `Allow writing to ${chalk.yellow(toolArgs.filePath)}?`,
+                                default: true
+                            }
+                        ]);
+
+                        if (!confirm) {
+                            this.history.push({
+                                role: 'tool',
+                                tool_call_id: toolCall.id,
+                                name: toolName,
+                                content: 'Error: User rejected write operation.'
+                            });
+                            console.log(chalk.red('  Action cancelled by user.'));
+                            spinner = ora('Thinking (processing rejection)...').start(); // Restart spinner
+                            continue;
+                        }
+                        spinner = ora('Executing...').start(); // Restart spinner
+                    }
 
                     const tool = this.tools.find(t => t.name === toolName);
                     let result = '';
@@ -350,59 +303,12 @@ export class ReplManager {
                         result = `Error: Tool ${toolName} not found.`;
                     }
 
-                    return {
-                        role: 'tool',
-                        tool_call_id: toolCall.id,
-                        name: toolName,
-                        content: result
-                    };
-                });
-
-                // Wait for all parallel tools
-                const parallelResults = await Promise.all(parallelPromises);
-                parallelResults.forEach((res: any) => this.history.push(res));
-
-                // Execute interactive tools sequentially
-                for (const toolCall of interactiveCalls) {
-                    const toolName = toolCall.function.name;
-                    const toolArgsStr = toolCall.function.arguments;
-                    const toolArgs = JSON.parse(toolArgsStr);
-
-                    console.log(chalk.dim(`  [Action] ${toolName}(${toolArgs.filePath})`)); // simplified log for write_file
-
-                    spinner.stop(); // Stop spinner for input
-                    const { confirm } = await inquirer.prompt([
-                        {
-                            type: 'confirm',
-                            name: 'confirm',
-                            message: `Allow writing to ${chalk.yellow(toolArgs.filePath)}?`,
-                            default: true
-                        }
-                    ]);
-
-                    if (!confirm) {
-                        this.history.push({
-                            role: 'tool',
-                            tool_call_id: toolCall.id,
-                            name: toolName,
-                            content: 'Error: User rejected write operation.'
-                        });
-                        console.log(chalk.red('  Action cancelled by user.'));
-                        spinner = ora('Thinking...').start();
-                        continue;
-                    }
-                    spinner = ora('Executing...').start();
-
-                    const tool = this.tools.find(t => t.name === toolName);
-                    let result = '';
-                    if (tool) {
-                        try {
-                            result = await tool.execute(toolArgs);
-                        } catch (e: any) {
-                            result = `Error: ${e.message}`;
-                        }
+                    // Stop spinner before next loop iteration or re-starting
+                    if (spinner.isSpinning) {
+                        spinner.stop();
                     }
 
+                    // Add result to history
                     this.history.push({
                         role: 'tool',
                         tool_call_id: toolCall.id,
@@ -411,8 +317,7 @@ export class ReplManager {
                     });
                 }
 
-                // Restart spinner for next turn
-                if (!spinner.isSpinning) spinner = ora('Thinking (processing tools)...').start();
+                spinner = ora('Thinking (processing tools)...').start();
 
                 // Get next response
                 response = await this.modelClient.chat(this.history, this.tools.map(t => ({
@@ -427,16 +332,10 @@ export class ReplManager {
 
             spinner.stop();
 
-
             console.log('');
             if (response.content) {
                 console.log(chalk.bold.blue('Mentis:'));
-                try {
-                    console.log(marked(response.content));
-                } catch (e) {
-                    // Fallback if marked fails
-                    console.log(response.content);
-                }
+                console.log(response.content);
 
                 if (response.usage) {
                     const { input_tokens, output_tokens } = response.usage;
@@ -449,10 +348,7 @@ export class ReplManager {
             }
         } catch (error: any) {
             spinner.fail('Error getting response from model.');
-            console.error(chalk.red(error.message));
-            if (error.response && error.response.data) {
-                console.error(chalk.dim(JSON.stringify(error.response.data, null, 2)));
-            }
+            console.error(error.message); // Simplified error logging
         }
     }
 
@@ -466,14 +362,11 @@ export class ReplManager {
                 prefix: '',
                 choices: [
                     'View Current Config',
-                    'Switch Provider',
-                    'Set Ollama Config',
-                    'Set Gemini Config',
-                    'Set OpenAI Config',
-                    'Set Anthropic Config',
-                    'Set Groq Config',
-                    'Set OpenRouter Config',
-                    'Set LlamaCpp Config',
+                    'Switch Provider (Ollama/Gemini)',
+                    'Set Ollama URL',
+                    'Set Ollama Model',
+                    'Set Gemini API Key',
+                    'Set Gemini Model',
                     'Back'
                 ]
             }
@@ -486,71 +379,41 @@ export class ReplManager {
             return;
         }
 
-        if (action === 'Switch Provider') {
-            const { provider } = await inquirer.prompt([{
-                type: 'list',
-                name: 'provider',
-                message: 'Select Provider:',
-                choices: ['ollama', 'gemini', 'openai', 'anthropic', 'groq', 'openrouter', 'llamacpp']
-            }]);
-            this.configManager.updateConfig({ defaultProvider: provider });
-            this.initializeClient();
-            console.log(chalk.green(`Switched to ${provider}`));
-            return;
-        }
+        const { value } = await inquirer.prompt([
+            {
+                type: 'input',
+                name: 'value',
+                message: `Enter new value for ${action}:`,
+                prefix: '',
+            }
+        ]);
 
-        // Generic handling for "Set X Config"
-        let targetProvider = '';
-        if (action.includes('Ollama')) targetProvider = 'ollama';
-        else if (action.includes('Gemini')) targetProvider = 'gemini';
-        else if (action.includes('OpenAI')) targetProvider = 'openai';
-        else if (action.includes('Anthropic')) targetProvider = 'anthropic';
-        else if (action.includes('Groq')) targetProvider = 'groq';
-        else if (action.includes('OpenRouter')) targetProvider = 'openrouter';
-        else if (action.includes('LlamaCpp')) targetProvider = 'llamacpp';
-
-        if (targetProvider) {
-            // Type safety for provider config access
-            const providerConfig = (config as any)[targetProvider] || {};
-
-            const answers = await inquirer.prompt([
-                {
-                    type: 'input',
-                    name: 'key',
-                    message: `API Key (leave empty to keep current):`,
-                    when: targetProvider !== 'ollama' && targetProvider !== 'llamacpp'
-                },
-                {
-                    type: 'input',
-                    name: 'url',
-                    message: `Base URL (leave empty to keep current):`,
-                    default: providerConfig.baseUrl, // Only applicable for some, but harmless
-                    when: targetProvider === 'ollama' || targetProvider === 'openai' || targetProvider === 'llamacpp'
-                },
-                {
-                    type: 'input',
-                    name: 'model',
-                    message: `Model (leave empty to keep current):`,
-                    default: providerConfig.model
-                }
-            ]);
-
-            const updates: any = {};
-            updates[targetProvider] = { ...providerConfig };
-
-            if (answers.key) updates[targetProvider].apiKey = answers.key;
-            if (answers.url) updates[targetProvider].baseUrl = answers.url;
-            if (answers.model) updates[targetProvider].model = answers.model;
-
-            this.configManager.updateConfig(updates);
-
-            // If we just updated the active provider, we should re-init
-            if (config.defaultProvider === targetProvider) {
-                this.initializeClient();
+        if (action === 'Set Ollama URL') {
+            this.configManager.updateConfig({
+                ollama: { ...config.ollama, baseUrl: value },
+                defaultProvider: 'ollama'
+            });
+        } else if (action === 'Set Ollama Model') {
+            this.configManager.updateConfig({ ollama: { ...config.ollama, model: value } });
+        } else if (action === 'Set Gemini API Key') {
+            this.configManager.updateConfig({
+                gemini: { ...config.gemini, apiKey: value },
+                defaultProvider: 'gemini'
+            });
+        } else if (action === 'Set Gemini Model') {
+            this.configManager.updateConfig({ gemini: { ...config.gemini, model: value } });
+        } else if (action === 'Switch Provider (Ollama/Gemini)') {
+            // value here is from the prompt, let's validate or make it a list choice next time
+            // For now assuming user types 'ollama' or 'gemini'
+            if (value === 'ollama' || value === 'gemini') {
+                this.configManager.updateConfig({ defaultProvider: value });
+            } else {
+                console.log(chalk.red('Invalid provider. Use "ollama" or "gemini".'));
+                return;
             }
         }
 
-        console.log(chalk.green('Configuration updated.'));
+        console.log(chalk.green('Configuration updated and reloaded.'));
     }
 
     private async handleModelCommand() {
@@ -559,7 +422,7 @@ export class ReplManager {
                 type: 'list',
                 name: 'provider',
                 message: 'Select AI Provider:',
-                choices: ['Gemini', 'Ollama', 'OpenAI', 'Anthropic', 'Groq', 'OpenRouter', 'LlamaCpp'],
+                choices: ['Gemini', 'Ollama', 'OpenAI'],
             }
         ]);
 
@@ -570,14 +433,6 @@ export class ReplManager {
             models = ['llama3:latest', 'deepseek-r1:latest', 'mistral:latest', 'Other...'];
         } else if (provider === 'OpenAI') {
             models = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'Other...'];
-        } else if (provider === 'Anthropic') {
-            models = ['claude-3-opus-20240229', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307', 'Other...'];
-        } else if (provider === 'Groq') {
-            models = ['llama3-70b-8192', 'mixtral-8x7b-32768', 'Other...'];
-        } else if (provider === 'OpenRouter') {
-            models = ['anthropic/claude-3-opus', 'openai/gpt-4o', 'google/gemini-pro-1.5', 'Other...'];
-        } else if (provider === 'LlamaCpp') {
-            models = ['default', 'Other...'];
         }
 
         let { model } = await inquirer.prompt([
@@ -600,65 +455,34 @@ export class ReplManager {
 
         let updates: any = {};
         const config = this.configManager.getConfig();
-        const lowerProvider = provider.toLowerCase();
 
-        if (lowerProvider === 'ollama' || lowerProvider === 'llamacpp') {
-            const defaultUrl = lowerProvider === 'ollama'
-                ? (config.ollama?.baseUrl || 'http://localhost:11434/v1')
-                : (config.llamacpp?.baseUrl || 'http://localhost:8080/v1');
-
+        if (provider === 'Ollama') {
             const { baseUrl } = await inquirer.prompt([{
                 type: 'input',
                 name: 'baseUrl',
                 message: 'Enter Base URL:',
-                default: defaultUrl
+                default: config.ollama?.baseUrl || 'http://localhost:11434/v1'
+            }]);
+            updates.ollama = { ...config.ollama, baseUrl, model };
+            updates.defaultProvider = 'ollama';
+        } else {
+            // Gemini or OpenAI
+            const currentKey = provider === 'Gemini' ? config.gemini?.apiKey : config.openai?.apiKey;
+            const { apiKey } = await inquirer.prompt([{
+                type: 'password',
+                name: 'apiKey',
+                message: `Enter ${provider} API Key:`,
+                mask: '*',
+                default: currentKey
             }]);
 
-            if (lowerProvider === 'ollama') {
-                updates.ollama = { ...config.ollama, baseUrl, model };
-            } else {
-                updates.llamacpp = { ...config.llamacpp, baseUrl, model };
-            }
-            updates.defaultProvider = lowerProvider;
-        } else {
-            // All other providers use API keys
-            let currentKey = '';
-            // Safely access config based on provider
-            if (lowerProvider === 'gemini') currentKey = config.gemini?.apiKey || '';
-            else if (lowerProvider === 'openai') currentKey = config.openai?.apiKey || '';
-            else if (lowerProvider === 'anthropic') currentKey = config.anthropic?.apiKey || '';
-            else if (lowerProvider === 'groq') currentKey = config.groq?.apiKey || '';
-            else if (lowerProvider === 'openrouter') currentKey = config.openrouter?.apiKey || '';
-
-            let apiKey = currentKey;
-
-            // Only prompt if we don't have a key, OR if the user explicitly might want to change it?
-            // User requested to NOT type it every time. So if we have it, we keep it.
-            // If they want to change it, they can use /config or /connect.
-            if (!currentKey) {
-                const answer = await inquirer.prompt([{
-                    type: 'password',
-                    name: 'apiKey',
-                    message: `Enter ${provider} API Key:`,
-                    mask: '*',
-                }]);
-                apiKey = answer.apiKey;
-            } else {
-                console.log(chalk.dim(`Using existing API key for ${provider}. Use /config to change.`));
-            }
-
-            if (lowerProvider === 'gemini') {
+            if (provider === 'Gemini') {
                 updates.gemini = { ...config.gemini, apiKey, model };
-            } else if (lowerProvider === 'openai') {
+                updates.defaultProvider = 'gemini';
+            } else {
                 updates.openai = { ...config.openai, apiKey, model };
-            } else if (lowerProvider === 'anthropic') {
-                updates.anthropic = { ...config.anthropic, apiKey, model };
-            } else if (lowerProvider === 'groq') {
-                updates.groq = { ...config.groq, apiKey, model };
-            } else if (lowerProvider === 'openrouter') {
-                updates.openrouter = { ...config.openrouter, apiKey, model };
+                updates.defaultProvider = 'openai';
             }
-            updates.defaultProvider = lowerProvider;
         }
 
         this.configManager.updateConfig(updates);
@@ -817,16 +641,7 @@ export class ReplManager {
                 new GitDiffTool(),
                 new GitCommitTool(),
                 new GitPushTool(),
-                new GitPullTool(),
-                new EditTool(),
-                new GlobTool(),
-                new BackgroundProcessTool(this.processManager),
-                new TaskTool(this.taskManager),
-                new PdfReaderTool(),
-                new ExcelReaderTool(),
-                new JupyterReaderTool(),
-                new ScreenshotTool(),
-                new RipgrepTool()
+                new GitPullTool()
             ];
         } else {
             console.log(chalk.red(`Unknown MCP action: ${action}`));
