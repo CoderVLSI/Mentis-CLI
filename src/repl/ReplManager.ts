@@ -84,7 +84,7 @@ export class ReplManager {
             // We can simulate the "box" look by printing a header before the prompt if we wanted, 
             // but let's stick to a clean prompt first.
             UIManager.printSeparator();
-            console.log(chalk.dim('  ? for shortcuts'));
+            console.log(chalk.dim('  Type /help for help'));
 
             const modeLabel = this.mode === 'PLAN' ? chalk.bgBlue.black(' PLAN ') : chalk.bgYellow.black(' BUILD ');
 

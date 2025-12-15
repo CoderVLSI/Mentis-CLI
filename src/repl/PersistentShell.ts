@@ -2,13 +2,19 @@ import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import os from 'os';
 
 export class PersistentShell {
-    private process: ChildProcessWithoutNullStreams;
+    private process: ChildProcessWithoutNullStreams | null = null;
     private buffer: string = '';
     private delimiter: string = 'MENTIS_SHELL_DELIMITER';
     private resolveCallback: ((output: string) => void) | null = null;
     private rejectCallback: ((error: Error) => void) | null = null;
 
     constructor() {
+        // Lazy init: Do not spawn here.
+    }
+
+    private initialize() {
+        if (this.process) return;
+
         const shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
         const args = os.platform() === 'win32' ? ['-NoLogo', '-NoExit', '-Command', '-'] : [];
 
@@ -27,6 +33,7 @@ export class PersistentShell {
             if (code !== 0) {
                 console.warn(`Shell process exited with code ${code}`);
             }
+            this.process = null; // Reset on exit
         });
     }
 
@@ -36,9 +43,6 @@ export class PersistentShell {
 
         if (this.buffer.includes(this.delimiter)) {
             const output = this.buffer.replace(this.delimiter, '').trim();
-            // Remove the echo command itself if it appears in output (common in some shells)
-            // But usually the delimiter is at the end.
-            // Let's just resolve.
             if (this.resolveCallback) {
                 this.resolveCallback(output);
                 this.resolveCallback = null;
@@ -49,8 +53,14 @@ export class PersistentShell {
     }
 
     public async execute(command: string): Promise<string> {
+        this.initialize(); // Ensure shell is running
+
         if (this.resolveCallback) {
             throw new Error('Shell is busy execution another command.');
+        }
+
+        if (!this.process) {
+            throw new Error('Failed to initialize shell process.');
         }
 
         return new Promise((resolve, reject) => {
@@ -58,17 +68,18 @@ export class PersistentShell {
             this.rejectCallback = reject;
             this.buffer = '';
 
-            // Clean command to avoid newlines messing up
             const cleanCommand = command.replace(/\n/g, '; ');
 
-            // Append delimiter echo
             const fullCommand = `${cleanCommand}; echo "${this.delimiter}"\n`;
 
-            this.process.stdin.write(fullCommand);
+            this.process?.stdin.write(fullCommand);
         });
     }
 
     public kill() {
-        this.process.kill();
+        if (this.process) {
+            this.process.kill();
+            this.process = null;
+        }
     }
 }
