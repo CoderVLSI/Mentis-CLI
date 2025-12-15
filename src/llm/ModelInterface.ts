@@ -43,5 +43,5 @@ export interface ToolDefinition {
 }
 
 export interface ModelClient {
-    chat(messages: ChatMessage[], tools?: ToolDefinition[]): Promise<ModelResponse>;
+    chat(messages: ChatMessage[], tools?: ToolDefinition[], signal?: AbortSignal): Promise<ModelResponse>;
 }

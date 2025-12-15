@@ -12,7 +12,7 @@ export class OpenAIClient implements ModelClient {
         this.model = model;
     }
 
-    async chat(messages: ChatMessage[], tools?: ToolDefinition[]): Promise<ModelResponse> {
+    async chat(messages: ChatMessage[], tools?: ToolDefinition[], signal?: AbortSignal): Promise<ModelResponse> {
         try {
             const requestBody: any = {
                 model: this.model,
@@ -36,6 +36,7 @@ export class OpenAIClient implements ModelClient {
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${this.apiKey}`,
                     },
+                    signal: signal // Pass AbortSignal to Axios
                 }
             );
 
@@ -49,6 +50,10 @@ export class OpenAIClient implements ModelClient {
                 }
             };
         } catch (error: any) {
+            if (axios.isCancel(error) || error.name === 'AbortError' || error.code === 'ERR_CANCELED') {
+                // Rethrow as specific cancellation to be handled by caller
+                throw new Error('Request cancelled by user');
+            }
             console.error('Error calling model API:', error.message);
             if (error.response) {
                 console.error('Response data:', error.response.data);

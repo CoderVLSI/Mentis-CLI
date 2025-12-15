@@ -279,16 +279,23 @@ export class ReplManager {
             fullInput = `${context}\n\nUser Question: ${fullInput}`;
         }
 
-        // We push the raw user input for display/history sanity, but send the mode instruction to the model
-        // Actually, for simple stateless/append-only history, let's append it invisibly or just append to content.
-        // Let's modify the last message specifically for the API call or just append it content-wise.
-        // To keep it simple: Append to the content we push. User will see it in history? 
-        // Better: Prepend system instruction to the 'messages' array for this turn if possible, or just append to user message.
-        // Appending to user message is easiest for compatibility.
-
         this.history.push({ role: 'user', content: fullInput });
 
-        let spinner = ora('Thinking...').start();
+        let spinner = ora('Thinking... (Press Esc to cancel)').start();
+        const controller = new AbortController();
+
+        // Setup cancellation listener
+        const keyListener = (str: string, key: any) => {
+            if (key.name === 'escape') {
+                controller.abort();
+            }
+        };
+
+        if (process.stdin.isTTY) {
+            readline.emitKeypressEvents(process.stdin);
+            process.stdin.setRawMode(true);
+            process.stdin.on('keypress', keyListener);
+        }
 
         try {
             // First call
@@ -299,10 +306,12 @@ export class ReplManager {
                     description: t.description,
                     parameters: t.parameters
                 }
-            })));
+            })), controller.signal);
 
             // Loop for tool calls
             while (response.tool_calls && response.tool_calls.length > 0) {
+                if (controller.signal.aborted) throw new Error('Request cancelled by user');
+
                 spinner.stop();
 
                 // Add the assistant's request to use tool to history
@@ -314,11 +323,13 @@ export class ReplManager {
 
                 // Execute tools
                 for (const toolCall of response.tool_calls) {
+                    if (controller.signal.aborted) break;
+
                     const toolName = toolCall.function.name;
                     const toolArgsStr = toolCall.function.arguments;
                     const toolArgs = JSON.parse(toolArgsStr);
 
-                    // Truncate long arguments for display to keep UI clean
+                    // Truncate long arguments
                     let displayArgs = toolArgsStr;
                     if (displayArgs.length > 100) {
                         displayArgs = displayArgs.substring(0, 100) + '...';
@@ -327,7 +338,14 @@ export class ReplManager {
 
                     // Safety check for write_file
                     if (toolName === 'write_file') {
+                        // Pause cancellation listener during user interaction
+                        if (process.stdin.isTTY) {
+                            process.stdin.removeListener('keypress', keyListener);
+                            process.stdin.setRawMode(false);
+                        }
+
                         spinner.stop(); // Stop spinner to allow input
+
                         const { confirm } = await inquirer.prompt([
                             {
                                 type: 'confirm',
@@ -337,6 +355,13 @@ export class ReplManager {
                             }
                         ]);
 
+                        // Resume cancellation listener
+                        if (process.stdin.isTTY) {
+                            process.stdin.setRawMode(true);
+                            process.stdin.on('keypress', keyListener);
+                            process.stdin.resume();
+                        }
+
                         if (!confirm) {
                             this.history.push({
                                 role: 'tool',
@@ -345,10 +370,10 @@ export class ReplManager {
                                 content: 'Error: User rejected write operation.'
                             });
                             console.log(chalk.red('  Action cancelled by user.'));
-                            spinner = ora('Thinking (processing rejection)...').start(); // Restart spinner
+                            spinner = ora('Thinking (processing rejection)...').start();
                             continue;
                         }
-                        spinner = ora('Executing...').start(); // Restart spinner
+                        spinner = ora('Executing...').start();
                     }
 
                     const tool = this.tools.find(t => t.name === toolName);
@@ -356,6 +381,9 @@ export class ReplManager {
 
                     if (tool) {
                         try {
+                            // Tools typically run synchronously or promise-based. 
+                            // Verify if we want Tools to be cancellable?
+                            // For now, if aborted during tool, we let tool finish but stop loop.
                             result = await tool.execute(toolArgs);
                         } catch (e: any) {
                             result = `Error: ${e.message}`;
@@ -364,12 +392,10 @@ export class ReplManager {
                         result = `Error: Tool ${toolName} not found.`;
                     }
 
-                    // Stop spinner before next loop iteration or re-starting
                     if (spinner.isSpinning) {
                         spinner.stop();
                     }
 
-                    // Add result to history
                     this.history.push({
                         role: 'tool',
                         tool_call_id: toolCall.id,
@@ -377,6 +403,8 @@ export class ReplManager {
                         content: result
                     });
                 }
+
+                if (controller.signal.aborted) throw new Error('Request cancelled by user');
 
                 spinner = ora('Thinking (processing tools)...').start();
 
@@ -388,7 +416,7 @@ export class ReplManager {
                         description: t.description,
                         parameters: t.parameters
                     }
-                })));
+                })), controller.signal);
             }
 
             spinner.stop();
@@ -408,8 +436,19 @@ export class ReplManager {
                 this.history.push({ role: 'assistant', content: response.content });
             }
         } catch (error: any) {
-            spinner.fail('Error getting response from model.');
-            console.error(error.message); // Simplified error logging
+            spinner.stop();
+            if (error.message === 'Request cancelled by user') {
+                console.log(chalk.yellow('\nRequest cancelled by user.'));
+            } else {
+                spinner.fail('Error getting response from model.');
+                console.error(error.message);
+            }
+        } finally {
+            if (process.stdin.isTTY) {
+                process.stdin.removeListener('keypress', keyListener);
+                process.stdin.setRawMode(false);
+                process.stdin.pause(); // Reset flow
+            }
         }
     }
 
