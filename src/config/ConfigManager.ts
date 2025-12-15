@@ -29,6 +29,11 @@ interface MentisConfig {
         apiKey?: string;
         model?: string;
     };
+    llamacpp?: {
+        baseUrl?: string;
+        model?: string;
+        apiKey?: string;
+    };
 }
 
 export class ConfigManager {
@@ -54,6 +59,10 @@ export class ConfigManager {
             },
             openrouter: {
                 model: 'anthropic/claude-3-opus' // Example
+            },
+            llamacpp: {
+                baseUrl: 'http://localhost:8080/v1',
+                model: 'default' // Llama.cpp often ignores model name if only one is loaded, but typical to send something
             }
         };
         this.loadConfig();

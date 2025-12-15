@@ -123,6 +123,11 @@ export class ReplManager {
             apiKey = config.openrouter?.apiKey || '';
             model = config.openrouter?.model || 'anthropic/claude-3-opus';
             this.modelClient = new OpenAIClient(baseUrl, apiKey, model);
+        } else if (provider === 'llamacpp') {
+            baseUrl = config.llamacpp?.baseUrl || 'http://localhost:8080/v1';
+            apiKey = config.llamacpp?.apiKey || 'sx-llamacpp'; // Some servers require a key, defaults to dummy often
+            model = config.llamacpp?.model || 'default';
+            this.modelClient = new OpenAIClient(baseUrl, apiKey, model);
         } else { // Default to Ollama
             baseUrl = config.ollama?.baseUrl || 'http://localhost:11434/v1';
             apiKey = 'ollama';
@@ -468,6 +473,7 @@ export class ReplManager {
                     'Set Anthropic Config',
                     'Set Groq Config',
                     'Set OpenRouter Config',
+                    'Set LlamaCpp Config',
                     'Back'
                 ]
             }
@@ -485,7 +491,7 @@ export class ReplManager {
                 type: 'list',
                 name: 'provider',
                 message: 'Select Provider:',
-                choices: ['ollama', 'gemini', 'openai', 'anthropic', 'groq', 'openrouter']
+                choices: ['ollama', 'gemini', 'openai', 'anthropic', 'groq', 'openrouter', 'llamacpp']
             }]);
             this.configManager.updateConfig({ defaultProvider: provider });
             this.initializeClient();
@@ -501,6 +507,7 @@ export class ReplManager {
         else if (action.includes('Anthropic')) targetProvider = 'anthropic';
         else if (action.includes('Groq')) targetProvider = 'groq';
         else if (action.includes('OpenRouter')) targetProvider = 'openrouter';
+        else if (action.includes('LlamaCpp')) targetProvider = 'llamacpp';
 
         if (targetProvider) {
             // Type safety for provider config access
@@ -511,14 +518,14 @@ export class ReplManager {
                     type: 'input',
                     name: 'key',
                     message: `API Key (leave empty to keep current):`,
-                    when: targetProvider !== 'ollama'
+                    when: targetProvider !== 'ollama' && targetProvider !== 'llamacpp'
                 },
                 {
                     type: 'input',
                     name: 'url',
                     message: `Base URL (leave empty to keep current):`,
                     default: providerConfig.baseUrl, // Only applicable for some, but harmless
-                    when: targetProvider === 'ollama' || targetProvider === 'openai'
+                    when: targetProvider === 'ollama' || targetProvider === 'openai' || targetProvider === 'llamacpp'
                 },
                 {
                     type: 'input',
@@ -552,7 +559,7 @@ export class ReplManager {
                 type: 'list',
                 name: 'provider',
                 message: 'Select AI Provider:',
-                choices: ['Gemini', 'Ollama', 'OpenAI', 'Anthropic', 'Groq', 'OpenRouter'],
+                choices: ['Gemini', 'Ollama', 'OpenAI', 'Anthropic', 'Groq', 'OpenRouter', 'LlamaCpp'],
             }
         ]);
 
@@ -569,6 +576,8 @@ export class ReplManager {
             models = ['llama3-70b-8192', 'mixtral-8x7b-32768', 'Other...'];
         } else if (provider === 'OpenRouter') {
             models = ['anthropic/claude-3-opus', 'openai/gpt-4o', 'google/gemini-pro-1.5', 'Other...'];
+        } else if (provider === 'LlamaCpp') {
+            models = ['default', 'Other...'];
         }
 
         let { model } = await inquirer.prompt([
@@ -593,15 +602,24 @@ export class ReplManager {
         const config = this.configManager.getConfig();
         const lowerProvider = provider.toLowerCase();
 
-        if (lowerProvider === 'ollama') {
+        if (lowerProvider === 'ollama' || lowerProvider === 'llamacpp') {
+            const defaultUrl = lowerProvider === 'ollama'
+                ? (config.ollama?.baseUrl || 'http://localhost:11434/v1')
+                : (config.llamacpp?.baseUrl || 'http://localhost:8080/v1');
+
             const { baseUrl } = await inquirer.prompt([{
                 type: 'input',
                 name: 'baseUrl',
                 message: 'Enter Base URL:',
-                default: config.ollama?.baseUrl || 'http://localhost:11434/v1'
+                default: defaultUrl
             }]);
-            updates.ollama = { ...config.ollama, baseUrl, model };
-            updates.defaultProvider = 'ollama';
+
+            if (lowerProvider === 'ollama') {
+                updates.ollama = { ...config.ollama, baseUrl, model };
+            } else {
+                updates.llamacpp = { ...config.llamacpp, baseUrl, model };
+            }
+            updates.defaultProvider = lowerProvider;
         } else {
             // All other providers use API keys
             let currentKey = '';
