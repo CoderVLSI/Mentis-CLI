@@ -12,6 +12,8 @@ import { PersistentShellTool } from '../tools/PersistentShellTool';
 import { PersistentShell } from './PersistentShell';
 import { WebSearchTool } from '../tools/WebSearchTool';
 import { GitStatusTool, GitDiffTool, GitCommitTool, GitPushTool, GitPullTool } from '../tools/GitTools';
+import { EditTool } from '../tools/EditTool';
+import { GlobTool } from '../tools/GlobTool';
 import { Tool } from '../tools/Tool';
 import { McpClient } from '../mcp/McpClient';
 import { CheckpointManager } from '../checkpoint/CheckpointManager';
@@ -43,7 +45,9 @@ export class ReplManager {
             new GitDiffTool(),
             new GitCommitTool(),
             new GitPushTool(),
-            new GitPullTool()
+            new GitPullTool(),
+            new EditTool(),
+            new GlobTool()
         ];
         // Default to Ollama if not specified, assuming compatible endpoint
         this.initializeClient();

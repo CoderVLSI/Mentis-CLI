@@ -28,6 +28,7 @@
     "commander": "^14.0.2",
     "dotenv": "^17.2.3",
     "duck-duck-scrape": "^2.2.7",
+    "fast-glob": "^3.3.3",
     "figlet": "^1.9.4",
     "fs-extra": "^11.3.2",
     "google-sr": "^6.0.0",
