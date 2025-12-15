@@ -22,6 +22,7 @@
   "author": "CoderVLSI",
   "license": "ISC",
   "dependencies": {
+    "@types/uuid": "^10.0.0",
     "axios": "^1.13.2",
     "boxen": "^8.0.1",
     "chalk": "^5.6.2",
@@ -34,7 +35,8 @@
     "google-sr": "^6.0.0",
     "gradient-string": "^3.0.0",
     "inquirer": "^13.1.0",
-    "ora": "^9.0.0"
+    "ora": "^9.0.0",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@types/figlet": "^1.7.0",

@@ -17,12 +17,18 @@ import { GlobTool } from '../tools/GlobTool';
 import { Tool } from '../tools/Tool';
 import { McpClient } from '../mcp/McpClient';
 import { CheckpointManager } from '../checkpoint/CheckpointManager';
+import { ProcessManager } from '../sys/ProcessManager';
+import { BackgroundProcessTool } from '../tools/BackgroundProcessTool';
+import { TaskManager } from '../agent/TaskManager';
+import { TaskTool } from '../tools/TaskTool';
 
 export class ReplManager {
     private configManager: ConfigManager;
     private modelClient!: ModelClient;
     private contextManager: ContextManager;
     private checkpointManager: CheckpointManager;
+    private processManager: ProcessManager;
+    private taskManager: TaskManager;
     private history: ChatMessage[] = [];
     private mode: 'PLAN' | 'BUILD' = 'BUILD';
     private tools: Tool[] = [];
@@ -34,6 +40,9 @@ export class ReplManager {
         this.contextManager = new ContextManager();
         this.checkpointManager = new CheckpointManager();
         this.shell = new PersistentShell();
+        this.processManager = new ProcessManager();
+        this.taskManager = new TaskManager();
+
         this.tools = [
             new WriteFileTool(),
             new ReadFileTool(),
@@ -47,7 +56,9 @@ export class ReplManager {
             new GitPushTool(),
             new GitPullTool(),
             new EditTool(),
-            new GlobTool()
+            new GlobTool(),
+            new BackgroundProcessTool(this.processManager),
+            new TaskTool(this.taskManager)
         ];
         // Default to Ollama if not specified, assuming compatible endpoint
         this.initializeClient();
@@ -88,6 +99,13 @@ export class ReplManager {
             // We can simulate the "box" look by printing a header before the prompt if we wanted, 
             // but let's stick to a clean prompt first.
             UIManager.printSeparator();
+
+            // Display active task if any
+            const activeTask = this.taskManager.getActiveTask();
+            if (activeTask) {
+                console.log(chalk.blue(`  [Active Task: ${activeTask.description}]`));
+            }
+
             console.log(chalk.dim('  ? for shortcuts'));
 
             const modeLabel = this.mode === 'PLAN' ? chalk.bgBlue.black(' PLAN ') : chalk.bgYellow.black(' BUILD ');
@@ -124,8 +142,6 @@ export class ReplManager {
                 console.log('  /config  - Configure settings');
                 console.log('  /add <file> - Add file to context');
                 console.log('  /drop <file> - Remove file from context');
-                console.log('  /plan    - Switch to PLAN mode');
-                console.log('  /build   - Switch to BUILD mode');
                 console.log('  /plan    - Switch to PLAN mode');
                 console.log('  /build   - Switch to BUILD mode');
                 console.log('  /model   - Interactively select Provider & Model');
@@ -197,6 +213,7 @@ export class ReplManager {
                 // Auto-save on exit
                 this.checkpointManager.save('latest', this.history, this.contextManager.getFiles());
                 this.shell.kill(); // Kill the shell process
+                this.processManager.killAll(); // Kill background processes
                 console.log(chalk.green('Session saved. Goodbye!'));
                 process.exit(0);
                 break;
@@ -222,12 +239,13 @@ export class ReplManager {
             fullInput = `${context}\n\nUser Question: ${fullInput}`;
         }
 
-        // We push the raw user input for display/history sanity, but send the mode instruction to the model
-        // Actually, for simple stateless/append-only history, let's append it invisibly or just append to content.
-        // Let's modify the last message specifically for the API call or just append it content-wise.
-        // To keep it simple: Append to the content we push. User will see it in history? 
-        // Better: Prepend system instruction to the 'messages' array for this turn if possible, or just append to user message.
-        // Appending to user message is easiest for compatibility.
+        // Inject Active Tasks into context silently if needed, or just rely on agent checking.
+        // For better proactivity, let's append active tasks to the system prompt part of the message.
+        const activeTasks = this.taskManager.listTasks().filter(t => t.status === 'in_progress' || t.status === 'pending');
+        if (activeTasks.length > 0) {
+            const taskContext = activeTasks.map(t => `- [${t.status.toUpperCase()}] ${t.description} (ID: ${t.id})`).join('\n');
+            fullInput += `\n\n[SYSTEM: Current Active/Pending Tasks from TaskManager:\n${taskContext}\n]`;
+        }
 
         this.history.push({ role: 'user', content: fullInput });
 
@@ -672,7 +690,11 @@ export class ReplManager {
                 new GitDiffTool(),
                 new GitCommitTool(),
                 new GitPushTool(),
-                new GitPullTool()
+                new GitPullTool(),
+                new EditTool(),
+                new GlobTool(),
+                new BackgroundProcessTool(this.processManager),
+                new TaskTool(this.taskManager)
             ];
         } else {
             console.log(chalk.red(`Unknown MCP action: ${action}`));
