@@ -25,6 +25,11 @@ import { PdfReaderTool, ExcelReaderTool, JupyterReaderTool } from '../tools/Spec
 import { ScreenshotTool } from '../tools/VisionTools';
 import { RipgrepTool } from '../tools/RipgrepTool';
 
+import { marked } from 'marked';
+import TerminalRenderer from 'marked-terminal';
+import highlight from 'cli-highlight';
+import boxen from 'boxen';
+
 export class ReplManager {
     private configManager: ConfigManager;
     private modelClient!: ModelClient;
@@ -45,6 +50,19 @@ export class ReplManager {
         this.shell = new PersistentShell();
         this.processManager = new ProcessManager();
         this.taskManager = new TaskManager();
+
+        // Setup Markdown Rendering
+        marked.setOptions({
+            // Define custom renderer
+            renderer: new TerminalRenderer({
+                code: (code: any, lang: any) => {
+                    return highlight(code, {
+                        language: lang || 'plaintext',
+                        ignoreIllegals: true
+                    });
+                }
+            } as any) as any
+        });
 
         this.tools = [
             new WriteFileTool(),
@@ -389,10 +407,16 @@ export class ReplManager {
 
             spinner.stop();
 
+
             console.log('');
             if (response.content) {
                 console.log(chalk.bold.blue('Mentis:'));
-                console.log(response.content);
+                try {
+                    console.log(marked(response.content));
+                } catch (e) {
+                    // Fallback if marked fails
+                    console.log(response.content);
+                }
 
                 if (response.usage) {
                     const { input_tokens, output_tokens } = response.usage;
