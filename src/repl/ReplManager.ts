@@ -21,6 +21,8 @@ import * as readline from 'readline';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { marked } from 'marked';
+import TerminalRenderer from 'marked-terminal';
 
 const HISTORY_FILE = path.join(os.homedir(), '.mentis_history');
 
@@ -45,15 +47,21 @@ export class ReplManager {
             new WriteFileTool(),
             new ReadFileTool(),
             new ListDirTool(),
-            new SearchFileTool(),
-            new PersistentShellTool(this.shell),
+            new SearchFileTool(), // grep
             new WebSearchTool(),
             new GitStatusTool(),
             new GitDiffTool(),
             new GitCommitTool(),
             new GitPushTool(),
-            new GitPullTool()
+            new GitPullTool(),
+            new PersistentShellTool(this.shell) // /run
         ];
+
+        // Configure Markdown Renderer
+        marked.setOptions({
+            // @ts-ignore
+            renderer: new TerminalRenderer()
+        });
         // Default to Ollama if not specified, assuming compatible endpoint
         this.initializeClient();
     }
@@ -388,7 +396,7 @@ export class ReplManager {
             console.log('');
             if (response.content) {
                 console.log(chalk.bold.blue('Mentis:'));
-                console.log(response.content);
+                console.log(marked(response.content));
 
                 if (response.usage) {
                     const { input_tokens, output_tokens } = response.usage;
