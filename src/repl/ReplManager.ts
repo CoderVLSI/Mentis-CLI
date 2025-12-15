@@ -7,7 +7,9 @@ import { OpenAIClient } from '../llm/OpenAIClient';
 import { ContextManager } from '../context/ContextManager';
 import { UIManager } from '../ui/UIManager';
 import { WriteFileTool, ReadFileTool, ListDirTool } from '../tools/FileTools';
-import { SearchFileTool, RunShellTool } from '../tools/SearchTools';
+import { SearchFileTool } from '../tools/SearchTools';
+import { PersistentShellTool } from '../tools/PersistentShellTool';
+import { PersistentShell } from './PersistentShell';
 import { WebSearchTool } from '../tools/WebSearchTool';
 import { Tool } from '../tools/Tool';
 import { McpClient } from '../mcp/McpClient';
@@ -22,17 +24,19 @@ export class ReplManager {
     private mode: 'PLAN' | 'BUILD' = 'BUILD';
     private tools: Tool[] = [];
     private mcpClients: McpClient[] = [];
+    private shell: PersistentShell;
 
     constructor() {
         this.configManager = new ConfigManager();
         this.contextManager = new ContextManager();
         this.checkpointManager = new CheckpointManager();
+        this.shell = new PersistentShell();
         this.tools = [
             new WriteFileTool(),
             new ReadFileTool(),
             new ListDirTool(),
             new SearchFileTool(),
-            new RunShellTool(),
+            new PersistentShellTool(this.shell),
             new WebSearchTool()
         ];
         // Default to Ollama if not specified, assuming compatible endpoint
@@ -182,6 +186,7 @@ export class ReplManager {
             case '/exit':
                 // Auto-save on exit
                 this.checkpointManager.save('latest', this.history, this.contextManager.getFiles());
+                this.shell.kill(); // Kill the shell process
                 console.log(chalk.green('Session saved. Goodbye!'));
                 process.exit(0);
                 break;
@@ -624,7 +629,7 @@ export class ReplManager {
                 new ReadFileTool(),
                 new ListDirTool(),
                 new SearchFileTool(),
-                new RunShellTool(),
+                new PersistentShellTool(this.shell),
                 new WebSearchTool()
             ];
         } else {
