@@ -152,7 +152,7 @@ export class ReplManager {
                 console.log(chalk.yellow('Switched to BUILD mode.'));
                 break;
             case '/model':
-                await this.handleModelCommand();
+                await this.handleModelCommand(args);
                 break;
             case '/connect':
                 console.log(chalk.dim('Tip: Use /model for an interactive menu.'));
@@ -434,13 +434,24 @@ export class ReplManager {
         }
     }
 
-    private async handleModelCommand() {
+    private async handleModelCommand(args: string[]) {
         const config = this.configManager.getConfig();
-        const provider = config.defaultProvider; // Use active provider
-        let models: string[] = [];
+        const provider = config.defaultProvider || 'ollama';
 
+        // If argument provided, use it directly
+        if (args.length > 0) {
+            const modelName = args[0];
+            const updates: any = {};
+            updates[provider] = { ...((config as any)[provider] || {}), model: modelName };
+            this.configManager.updateConfig(updates);
+            this.initializeClient(); // Re-init with new model
+            console.log(chalk.green(`\nModel set to ${chalk.bold(modelName)} for ${provider}!`));
+            return;
+        }
+
+        let models: string[] = [];
         if (provider === 'gemini') {
-            models = ['gemini-2.5-flash', 'gemini-1.5-pro', 'gemini-1.5-flash', 'Other...'];
+            models = ['gemini-2.5-flash', 'gemini-1.5-pro', 'gemini-1.0-pro', 'Other...'];
         } else if (provider === 'ollama') {
             models = ['llama3:latest', 'deepseek-r1:latest', 'mistral:latest', 'Other...'];
         } else if (provider === 'openai') {
