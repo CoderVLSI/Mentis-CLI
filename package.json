@@ -22,6 +22,7 @@
   "author": "CoderVLSI",
   "license": "ISC",
   "dependencies": {
+    "@types/pdf-parse": "^1.1.5",
     "@types/uuid": "^10.0.0",
     "axios": "^1.13.2",
     "boxen": "^8.0.1",
@@ -36,7 +37,11 @@
     "gradient-string": "^3.0.0",
     "inquirer": "^13.1.0",
     "ora": "^9.0.0",
-    "uuid": "^13.0.0"
+    "pdf-parse": "^2.4.5",
+    "screenshot-desktop": "^1.15.3",
+    "uuid": "^13.0.0",
+    "vscode-ripgrep": "^1.13.2",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/figlet": "^1.7.0",

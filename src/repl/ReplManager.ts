@@ -21,6 +21,9 @@ import { ProcessManager } from '../sys/ProcessManager';
 import { BackgroundProcessTool } from '../tools/BackgroundProcessTool';
 import { TaskManager } from '../agent/TaskManager';
 import { TaskTool } from '../tools/TaskTool';
+import { PdfReaderTool, ExcelReaderTool, JupyterReaderTool } from '../tools/SpecializedIO';
+import { ScreenshotTool } from '../tools/VisionTools';
+import { RipgrepTool } from '../tools/RipgrepTool';
 
 export class ReplManager {
     private configManager: ConfigManager;
@@ -58,7 +61,12 @@ export class ReplManager {
             new EditTool(),
             new GlobTool(),
             new BackgroundProcessTool(this.processManager),
-            new TaskTool(this.taskManager)
+            new TaskTool(this.taskManager),
+            new PdfReaderTool(),
+            new ExcelReaderTool(),
+            new JupyterReaderTool(),
+            new ScreenshotTool(),
+            new RipgrepTool()
         ];
         // Default to Ollama if not specified, assuming compatible endpoint
         this.initializeClient();
@@ -694,7 +702,12 @@ export class ReplManager {
                 new EditTool(),
                 new GlobTool(),
                 new BackgroundProcessTool(this.processManager),
-                new TaskTool(this.taskManager)
+                new TaskTool(this.taskManager),
+                new PdfReaderTool(),
+                new ExcelReaderTool(),
+                new JupyterReaderTool(),
+                new ScreenshotTool(),
+                new RipgrepTool()
             ];
         } else {
             console.log(chalk.red(`Unknown MCP action: ${action}`));
