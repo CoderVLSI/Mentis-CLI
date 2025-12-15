@@ -66,6 +66,10 @@ export class ReplManager {
             baseUrl = config.openai?.baseUrl || 'https://api.openai.com/v1';
             apiKey = config.openai?.apiKey || '';
             model = config.openai?.model || 'gpt-4o';
+        } else if (provider === 'glm') {
+            baseUrl = 'https://open.bigmodel.cn/api/paas/v4/';
+            apiKey = config.glm?.apiKey || '';
+            model = config.glm?.model || 'glm-4';
         } else { // Default to Ollama
             baseUrl = config.ollama?.baseUrl || 'http://localhost:11434/v1';
             apiKey = 'ollama'; // Ollama typically doesn't use an API key in the same way
@@ -422,7 +426,7 @@ export class ReplManager {
                 type: 'list',
                 name: 'provider',
                 message: 'Select AI Provider:',
-                choices: ['Gemini', 'Ollama', 'OpenAI'],
+                choices: ['Gemini', 'Ollama', 'OpenAI', 'GLM'],
             }
         ]);
 
@@ -433,6 +437,8 @@ export class ReplManager {
             models = ['llama3:latest', 'deepseek-r1:latest', 'mistral:latest', 'Other...'];
         } else if (provider === 'OpenAI') {
             models = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'Other...'];
+        } else if (provider === 'GLM') {
+            models = ['glm-4.6', 'glm-4', 'glm-4-plus', 'glm-4-air', 'glm-4-flash', 'Other...'];
         }
 
         let { model } = await inquirer.prompt([
@@ -466,8 +472,11 @@ export class ReplManager {
             updates.ollama = { ...config.ollama, baseUrl, model };
             updates.defaultProvider = 'ollama';
         } else {
-            // Gemini or OpenAI
-            const currentKey = provider === 'Gemini' ? config.gemini?.apiKey : config.openai?.apiKey;
+            // Gemini or OpenAI or GLM
+            let currentKey = '';
+            if (provider === 'Gemini') currentKey = config.gemini?.apiKey || '';
+            else if (provider === 'GLM') currentKey = config.glm?.apiKey || '';
+            else currentKey = config.openai?.apiKey || '';
             const { apiKey } = await inquirer.prompt([{
                 type: 'password',
                 name: 'apiKey',
@@ -479,6 +488,9 @@ export class ReplManager {
             if (provider === 'Gemini') {
                 updates.gemini = { ...config.gemini, apiKey, model };
                 updates.defaultProvider = 'gemini';
+            } else if (provider === 'GLM') {
+                updates.glm = { ...config.glm, apiKey, model };
+                updates.defaultProvider = 'glm';
             } else {
                 updates.openai = { ...config.openai, apiKey, model };
                 updates.defaultProvider = 'openai';
@@ -528,8 +540,18 @@ export class ReplManager {
                 defaultProvider: 'openai' // We might need to handle 'openai' in initializeClient if we add it officially
             });
             console.log(chalk.green(`Connected to OpenAI.`));
+        } else if (provider === 'glm') {
+            if (!value) {
+                console.log(chalk.red('Error: API Key required for GLM. usage: /connect glm <api_key>'));
+                return;
+            }
+            this.configManager.updateConfig({
+                glm: { ...config.glm, apiKey: value },
+                defaultProvider: 'glm'
+            });
+            console.log(chalk.green(`Connected to GLM (ZhipuAI).`));
         } else {
-            console.log(chalk.red(`Unknown provider: ${provider}. Use 'gemini', 'ollama', or 'openai'.`));
+            console.log(chalk.red(`Unknown provider: ${provider}. Use 'gemini', 'ollama', 'openai', or 'glm'.`));
             return;
         }
 
@@ -557,6 +579,12 @@ export class ReplManager {
             const updates: any = { defaultProvider: 'ollama' };
             if (model) {
                 updates.ollama = { ...config.ollama, model: model };
+            }
+            this.configManager.updateConfig(updates);
+        } else if (provider === 'glm') {
+            const updates: any = { defaultProvider: 'glm' };
+            if (model) {
+                updates.glm = { ...config.glm, model: model };
             }
             this.configManager.updateConfig(updates);
 
@@ -717,6 +745,9 @@ export class ReplManager {
         } else if (provider === 'gemini') {
             rateIn = 0.35 / 1000000;
             rateOut = 0.70 / 1000000;
+        } else if (provider === 'glm') {
+            rateIn = 14.00 / 1000000; // Approximate for GLM-4
+            rateOut = 14.00 / 1000000;
         }
 
         return (input * rateIn) + (output * rateOut);

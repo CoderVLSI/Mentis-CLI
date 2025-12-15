@@ -17,6 +17,10 @@ interface MentisConfig {
         apiKey?: string;
         model?: string;
     };
+    glm?: {
+        apiKey?: string;
+        model?: string; // e.g. glm-4
+    };
 }
 
 export class ConfigManager {
@@ -33,6 +37,9 @@ export class ConfigManager {
             },
             gemini: {
                 model: 'gemini-2.5-flash'
+            },
+            glm: {
+                model: 'glm-4'
             }
         };
         this.loadConfig();
