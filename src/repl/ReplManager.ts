@@ -26,6 +26,7 @@ export class ReplManager {
     private tools: Tool[] = [];
     private mcpClients: McpClient[] = [];
     private shell: PersistentShell;
+    private currentModelName: string = 'Unknown';
 
     constructor() {
         this.configManager = new ConfigManager();
@@ -71,6 +72,7 @@ export class ReplManager {
             model = config.ollama?.model || 'llama3:latest';
         }
 
+        this.currentModelName = model;
         this.modelClient = new OpenAIClient(baseUrl, apiKey, model);
         // console.log(chalk.dim(`Initialized ${provider} client with model ${model}`));
     }
@@ -84,7 +86,7 @@ export class ReplManager {
             // We can simulate the "box" look by printing a header before the prompt if we wanted, 
             // but let's stick to a clean prompt first.
             UIManager.printSeparator();
-            console.log(chalk.dim('  Type /help for help'));
+            console.log(chalk.dim(`  /help for help | Model: ${chalk.cyan(this.currentModelName)}`));
 
             const modeLabel = this.mode === 'PLAN' ? chalk.bgBlue.black(' PLAN ') : chalk.bgYellow.black(' BUILD ');
 
@@ -93,8 +95,6 @@ export class ReplManager {
                     type: 'input',
                     name: 'input',
                     message: `${modeLabel} ${chalk.cyan('>')}`,
-                    prefix: '',
-                    suffix: '',
                 },
             ]);
 
