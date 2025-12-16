@@ -120,7 +120,8 @@ export class ReplManager {
             // Removed redundancy to keep CLI clean, prompt has info? No, prompt is minimal.
 
             const modeLabel = this.mode === 'PLAN' ? chalk.magenta('PLAN') : chalk.blue('BUILD');
-            const promptText = `${modeLabel} ${chalk.cyan('>')}`;
+            const modelInfo = this.currentModelName ? ` (${this.currentModelName})` : '';
+            const promptText = `${modeLabel}${chalk.dim(modelInfo)} ${chalk.cyan('>')}`;
 
             // Use readline for basic input to support history
             const answer = await new Promise<string>((resolve) => {
@@ -533,42 +534,55 @@ export class ReplManager {
 
     private async handleModelCommand(args: string[]) {
         const config = this.configManager.getConfig();
-        const provider = config.defaultProvider || 'ollama';
+        const currentProvider = config.defaultProvider || 'ollama';
 
-        // If argument provided, use it directly
+        // Direct argument: /model gpt-4o (updates active provider's model)
         if (args.length > 0) {
             const modelName = args[0];
             const updates: any = {};
-            updates[provider] = { ...((config as any)[provider] || {}), model: modelName };
+            updates[currentProvider] = { ...((config as any)[currentProvider] || {}), model: modelName };
             this.configManager.updateConfig(updates);
             this.initializeClient(); // Re-init with new model
-            console.log(chalk.green(`\nModel set to ${chalk.bold(modelName)} for ${provider}!`));
+            console.log(chalk.green(`\nModel set to ${chalk.bold(modelName)} for ${currentProvider}!`));
             return;
         }
 
+        // Interactive Mode: Streamlined Provider -> Model Flow
+        console.log(chalk.cyan('Configure Model & Provider'));
+
+        const { provider } = await inquirer.prompt([
+            {
+                type: 'list',
+                name: 'provider',
+                message: 'Select Provider:',
+                choices: ['Gemini', 'Ollama', 'OpenAI', 'GLM'],
+                default: currentProvider.charAt(0).toUpperCase() + currentProvider.slice(1) // Capitalize for default selection
+            }
+        ]);
+
+        const selectedProvider = provider.toLowerCase();
+
         let models: string[] = [];
-        if (provider === 'gemini') {
+        if (selectedProvider === 'gemini') {
             models = ['gemini-2.5-flash', 'gemini-1.5-pro', 'gemini-1.0-pro', 'Other...'];
-        } else if (provider === 'ollama') {
-            models = ['llama3:latest', 'deepseek-r1:latest', 'mistral:latest', 'Other...'];
-        } else if (provider === 'openai') {
+        } else if (selectedProvider === 'ollama') {
+            models = ['llama3:latest', 'deepseek-r1:latest', 'mistral:latest', 'qwen2.5-coder', 'Other...'];
+        } else if (selectedProvider === 'openai') {
             models = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'Other...'];
-        } else if (provider === 'glm') {
+        } else if (selectedProvider === 'glm') {
             models = ['glm-4.6', 'glm-4-plus', 'glm-4', 'glm-4-air', 'glm-4-flash', 'Other...'];
-        } else if (provider === 'anthropic') {
-            models = ['claude-3-5-sonnet-20241022', 'claude-3-opus-20240229', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307', 'glm-4.6', 'Other...'];
         } else {
             models = ['Other...'];
         }
-
-        console.log(chalk.blue(`Configuring model for active provider: ${chalk.bold(provider)}`));
 
         let { model } = await inquirer.prompt([
             {
                 type: 'list',
                 name: 'model',
-                message: 'Select Model:',
+                message: `Select Model for ${provider}:`,
                 choices: models,
+                // Try to find current model in list to set default
+                default: (config as any)[selectedProvider]?.model
             }
         ]);
 
@@ -581,12 +595,37 @@ export class ReplManager {
             model = customModel;
         }
 
+        // Check for missing API Key (except for Ollama)
+        let newApiKey = undefined;
+        const currentKey = (config as any)[selectedProvider]?.apiKey;
+
+        if (selectedProvider !== 'ollama' && !currentKey) {
+            console.log(chalk.yellow(`\n⚠️ No API Key found for ${provider}.`));
+            const { apiKey } = await inquirer.prompt([{
+                type: 'password',
+                name: 'apiKey',
+                message: `Enter API Key for ${provider} (or leave empty to skip):`,
+                mask: '*'
+            }]);
+            if (apiKey && apiKey.trim()) {
+                newApiKey = apiKey.trim();
+            }
+        }
+
         const updates: any = {};
-        updates[provider] = { ...((config as any)[provider] || {}), model: model };
+        updates.defaultProvider = selectedProvider;
+        updates[selectedProvider] = {
+            ...((config as any)[selectedProvider] || {}),
+            model: model
+        };
+
+        if (newApiKey) {
+            updates[selectedProvider].apiKey = newApiKey;
+        }
 
         this.configManager.updateConfig(updates);
         this.initializeClient();
-        console.log(chalk.green(`\nModel set to ${model} for ${provider}!`));
+        console.log(chalk.green(`\nSwitched to ${chalk.bold(provider)} (${model})!`));
     }
 
     private async handleConnectCommand(args: string[]) {
