@@ -99,29 +99,28 @@ export class ReplManager {
     }
 
     public async start() {
-        UIManager.displayLogo();
-        UIManager.displayWelcome();
+        UIManager.renderDashboard({
+            model: this.currentModelName,
+            mode: this.mode,
+            cwd: process.cwd()
+        });
 
         // Load History
         let commandHistory: string[] = [];
         if (fs.existsSync(HISTORY_FILE)) {
             try {
-                commandHistory = fs.readFileSync(HISTORY_FILE, 'utf-8').split('\n').filter(Boolean).reverse(); // readline expects newest first? No, newest is usually 0? Check.
-                // readline.history is [newest, ..., oldest]
-                // If I read from file where newest is at bottom (standard append), I need to reverse it.
-                // Let's assume standard file: line 1 (old), line 2 (new).
-                // So split -> reverse -> history.
+                commandHistory = fs.readFileSync(HISTORY_FILE, 'utf-8').split('\n').filter(Boolean).reverse();
             } catch (e) { }
         }
 
         while (true) {
-            UIManager.printSeparator();
-            // console.log(chalk.dim(`  /help for help | Model: ${chalk.cyan(this.currentModelName)}`));
-            // Removed redundancy to keep CLI clean, prompt has info? No, prompt is minimal.
+            // Minimalist Separator
+            console.log(chalk.gray('────────────────────────────────────────────────────────────────────────────────'));
 
-            const modeLabel = this.mode === 'PLAN' ? chalk.magenta('PLAN') : chalk.blue('BUILD');
-            const modelInfo = this.currentModelName ? ` (${this.currentModelName})` : '';
-            const promptText = `${modeLabel}${chalk.dim(modelInfo)} ${chalk.cyan('>')}`;
+            // Hint (Claude style puts it below, we put it above for standard terminal compatibility)
+            console.log(chalk.dim('  ? for shortcuts'));
+
+            const promptText = `> `;  // Clean prompt
 
             // Use readline for basic input to support history
             const answer = await new Promise<string>((resolve) => {
@@ -130,7 +129,7 @@ export class ReplManager {
                     output: process.stdout,
                     history: commandHistory,
                     historySize: 1000,
-                    prompt: promptText + ' '
+                    prompt: promptText
                 });
 
                 rl.prompt();
@@ -179,6 +178,7 @@ export class ReplManager {
                 console.log('  /help    - Show this help message');
                 console.log('  /clear   - Clear chat history');
                 console.log('  /exit    - Exit the application');
+                console.log('  /update  - Check for and install updates');
                 console.log('  /config  - Configure settings');
                 console.log('  /add <file> - Add file to context');
                 console.log('  /drop <file> - Remove file from context');
@@ -257,6 +257,11 @@ export class ReplManager {
                 this.shell.kill(); // Kill the shell process
                 console.log(chalk.green('Session saved. Goodbye!'));
                 process.exit(0);
+                break;
+            case '/update':
+                const UpdateManager = require('../utils/UpdateManager').UpdateManager;
+                const updater = new UpdateManager();
+                await updater.checkAndPerformUpdate(true);
                 break;
             default:
                 console.log(chalk.red(`Unknown command: ${command}`));
