@@ -33,6 +33,11 @@ import TerminalRenderer from 'marked-terminal';
 
 const HISTORY_FILE = path.join(os.homedir(), '.mentis_history');
 
+export interface CliOptions {
+    resume: boolean;
+    yolo: boolean;
+}
+
 export class ReplManager {
     private configManager: ConfigManager;
     private modelClient!: ModelClient;
@@ -49,8 +54,10 @@ export class ReplManager {
     private shell: PersistentShell;
     private currentModelName: string = 'Unknown';
     private activeSkill: string | null = null;  // Track currently active skill for allowed-tools
+    private options: CliOptions;
 
-    constructor() {
+    constructor(options: CliOptions = { resume: false, yolo: false }) {
+        this.options = options;
         this.configManager = new ConfigManager();
         this.contextManager = new ContextManager();
         this.checkpointManager = new CheckpointManager();
@@ -192,6 +199,18 @@ export class ReplManager {
             mode: this.mode,
             cwd: process.cwd()
         });
+
+        // Auto-resume if --resume flag is set
+        if (this.options.resume) {
+            const cp = this.checkpointManager.load('latest');
+            if (cp) {
+                this.history = cp.history;
+                console.log(chalk.green(`\n✓ Resumed session from ${new Date(cp.timestamp).toLocaleString()}`));
+                console.log(chalk.dim(`  Messages: ${this.history.length}\n`));
+            } else {
+                console.log(chalk.yellow('\n⚠ No previous session found to resume.\n'));
+            }
+        }
 
         // Load History
         let commandHistory: string[] = [];
@@ -565,7 +584,8 @@ export class ReplManager {
                     this.history = await this.conversationCompacter.promptIfCompactNeeded(
                         usage.percentage,
                         this.history,
-                        this.modelClient
+                        this.modelClient,
+                        this.options.yolo
                     );
                 }
             }

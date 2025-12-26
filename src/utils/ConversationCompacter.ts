@@ -86,7 +86,8 @@ export class ConversationCompacter {
     async promptIfCompactNeeded(
         percentage: number,
         history: ChatMessage[],
-        modelClient: ModelClient
+        modelClient: ModelClient,
+        yolo: boolean = false
     ): Promise<ChatMessage[]> {
         if (percentage < 80) {
             return history;
@@ -94,27 +95,30 @@ export class ConversationCompacter {
 
         console.log(chalk.yellow(`\n⚠️  Context is ${percentage}% full. Consider compacting to save tokens.`));
 
-        const { shouldCompact } = await inquirer.prompt([
-            {
-                type: 'confirm',
-                name: 'shouldCompact',
-                message: 'Compact conversation now?',
-                default: true
-            }
-        ]);
+        // Skip confirmation if yolo mode is enabled
+        if (!yolo) {
+            const { shouldCompact } = await inquirer.prompt([
+                {
+                    type: 'confirm',
+                    name: 'shouldCompact',
+                    message: 'Compact conversation now?',
+                    default: true
+                }
+            ]);
 
-        if (!shouldCompact) {
-            return history;
+            if (!shouldCompact) {
+                return history;
+            }
         }
 
-        const { focusTopic } = await inquirer.prompt([
+        const focusTopic = yolo ? '' : await inquirer.prompt([
             {
                 type: 'input',
                 name: 'focusTopic',
                 message: 'Focus on specific topic? (leave empty for general)',
                 default: ''
             }
-        ]);
+        ]).then(a => a.focusTopic);
 
         return await this.compact(history, modelClient, {
             keepSystemMessages: true,
