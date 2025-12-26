@@ -14,13 +14,13 @@ export class UIManager {
             whitespaceBreak: true,
         });
         console.log(gradient.pastel.multiline(logoText));
-        console.log(chalk.gray('  v1.0.5 - AI Coding Agent'));
+        console.log(chalk.gray('  v1.1.0 - AI Coding Agent'));
         console.log('');
     }
 
     public static renderDashboard(config: { model: string, mode: string, cwd: string }) {
         const { model, cwd } = config;
-        const version = 'v1.0.8';
+        const version = 'v1.1.0';
 
         // Layout: Left (Status/Welcome) | Right (Tips/Activity)
         // Total width ~80 chars. 

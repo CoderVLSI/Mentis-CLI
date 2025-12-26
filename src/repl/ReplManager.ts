@@ -17,6 +17,13 @@ import { Tool } from '../tools/Tool';
 import { McpClient } from '../mcp/McpClient';
 
 import { CheckpointManager } from '../checkpoint/CheckpointManager';
+import { SkillsManager } from '../skills/SkillsManager';
+import { LoadSkillTool, ListSkillsTool, ReadSkillFileTool } from '../skills/LoadSkillTool';
+import { ContextVisualizer } from '../utils/ContextVisualizer';
+import { ProjectInitializer } from '../utils/ProjectInitializer';
+import { ConversationCompacter } from '../utils/ConversationCompacter';
+import { CommandManager } from '../commands/CommandManager';
+import { SlashCommandTool, ListCommandsTool } from '../commands/SlashCommandTool';
 import * as readline from 'readline';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -31,18 +38,29 @@ export class ReplManager {
     private modelClient!: ModelClient;
     private contextManager: ContextManager;
     private checkpointManager: CheckpointManager;
+    private skillsManager: SkillsManager;
+    private contextVisualizer: ContextVisualizer;
+    private conversationCompacter: ConversationCompacter;
+    private commandManager: CommandManager;
     private history: ChatMessage[] = [];
     private mode: 'PLAN' | 'BUILD' = 'BUILD';
     private tools: Tool[] = [];
     private mcpClients: McpClient[] = [];
     private shell: PersistentShell;
     private currentModelName: string = 'Unknown';
+    private activeSkill: string | null = null;  // Track currently active skill for allowed-tools
 
     constructor() {
         this.configManager = new ConfigManager();
         this.contextManager = new ContextManager();
         this.checkpointManager = new CheckpointManager();
+        this.skillsManager = new SkillsManager();
+        this.contextVisualizer = new ContextVisualizer();
+        this.conversationCompacter = new ConversationCompacter();
+        this.commandManager = new CommandManager();
         this.shell = new PersistentShell();
+
+        // Create tools array without skill tools first
         this.tools = [
             new WriteFileTool(),
             new ReadFileTool(),
@@ -64,6 +82,76 @@ export class ReplManager {
         });
         // Default to Ollama if not specified, assuming compatible endpoint
         this.initializeClient();
+
+        // Initialize skills system after client is ready
+        this.initializeSkills();
+    }
+
+    /**
+     * Initialize the skills and custom commands system
+     */
+    private async initializeSkills() {
+        // Initialize skills
+        this.skillsManager.ensureDirectoriesExist();
+        await this.skillsManager.discoverSkills();
+
+        // Initialize custom commands
+        this.commandManager.ensureDirectoriesExist();
+        await this.commandManager.discoverCommands();
+
+        // Add skill tools to the tools list
+        // Pass callback to LoadSkillTool to track active skill
+        this.tools.push(
+            new LoadSkillTool(this.skillsManager, (skill) => {
+                this.activeSkill = skill ? skill.name : null;
+            }),
+            new ListSkillsTool(this.skillsManager),
+            new ReadSkillFileTool(this.skillsManager),
+            new SlashCommandTool(this.commandManager),
+            new ListCommandsTool(this.commandManager)
+        );
+    }
+
+    /**
+     * Check if a tool is allowed by the currently active skill
+     * Returns true if tool is allowed, false if it requires confirmation
+     */
+    private isToolAllowedBySkill(toolName: string): boolean {
+        if (!this.activeSkill) {
+            // No active skill, all tools require confirmation as per normal flow
+            return false;
+        }
+
+        const skill = this.skillsManager.getSkill(this.activeSkill);
+        if (!skill || !skill.allowedTools || skill.allowedTools.length === 0) {
+            // No skill or no allowed-tools restriction
+            return false;
+        }
+
+        // Map tool names to allowed tool names
+        const toolMapping: Record<string, string> = {
+            'write_file': 'Write',
+            'read_file': 'Read',
+            'edit_file': 'Edit',
+            'search_files': 'Grep',
+            'list_dir': 'ListDir',
+            'search_file': 'SearchFile',
+            'run_shell': 'RunShell',
+            'web_search': 'WebSearch',
+            'git_status': 'GitStatus',
+            'git_diff': 'GitDiff',
+            'git_commit': 'GitCommit',
+            'git_push': 'GitPush',
+            'git_pull': 'GitPull',
+            'load_skill': 'Read',
+            'list_skills': 'Read',
+            'read_skill_file': 'Read',
+            'slash_command': 'Read',
+            'list_commands': 'Read'
+        };
+
+        const mappedToolName = toolMapping[toolName] || toolName;
+        return skill.allowedTools.includes(mappedToolName);
     }
 
     private initializeClient() {
@@ -184,16 +272,17 @@ export class ReplManager {
                 console.log('  /drop <file> - Remove file from context');
                 console.log('  /plan    - Switch to PLAN mode');
                 console.log('  /build   - Switch to BUILD mode');
-                console.log('  /plan    - Switch to PLAN mode');
-                console.log('  /build   - Switch to BUILD mode');
                 console.log('  /model   - Interactively select Provider & Model');
                 console.log('  /use <provider> [model] - Quick switch (legacy)');
                 console.log('  /mcp <cmd> - Manage MCP servers');
+                console.log('  /skills <list|show|create|validate> - Manage Agent Skills');
+                console.log('  /commands <list|create|validate> - Manage Custom Commands');
                 console.log('  /resume  - Resume last session');
                 console.log('  /checkpoint <save|load|list> [name] - Manage checkpoints');
                 console.log('  /search <query> - Search codebase');
                 console.log('  /run <cmd> - Run shell command');
                 console.log('  /commit [msg] - Git commit all changes');
+                console.log('  /init    - Initialize project with .mentis.md');
                 break;
             case '/plan':
                 this.mode = 'PLAN';
@@ -263,6 +352,15 @@ export class ReplManager {
                 const updater = new UpdateManager();
                 await updater.checkAndPerformUpdate(true);
                 break;
+            case '/init':
+                await this.handleInitCommand();
+                break;
+            case '/skills':
+                await this.handleSkillsCommand(args);
+                break;
+            case '/commands':
+                await this.handleCommandsCommand(args);
+                break;
             default:
                 console.log(chalk.red(`Unknown command: ${command}`));
         }
@@ -270,6 +368,8 @@ export class ReplManager {
 
     private async handleChat(input: string) {
         const context = this.contextManager.getContextString();
+        const skillsContext = this.skillsManager.getSkillsContext();
+        const commandsContext = this.commandManager.getCommandsContext();
         let fullInput = input;
 
         let modeInstruction = '';
@@ -280,6 +380,16 @@ export class ReplManager {
         }
 
         fullInput = `${input}${modeInstruction}`;
+
+        // Add skills context if available
+        if (skillsContext) {
+            fullInput = `${skillsContext}\n\n${fullInput}`;
+        }
+
+        // Add commands context if available
+        if (commandsContext) {
+            fullInput = `${commandsContext}\n\n${fullInput}`;
+        }
 
         if (context) {
             fullInput = `${context}\n\nUser Question: ${fullInput}`;
@@ -343,7 +453,8 @@ export class ReplManager {
                     console.log(chalk.dim(`  [Action] ${toolName}(${displayArgs})`));
 
                     // Safety check for write_file
-                    if (toolName === 'write_file') {
+                    // Skip confirmation if tool is allowed by active skill
+                    if (toolName === 'write_file' && !this.isToolAllowedBySkill('Write')) {
                         // Pause cancellation listener during user interaction
                         if (process.stdin.isTTY) {
                             process.stdin.removeListener('keypress', keyListener);
@@ -441,8 +552,22 @@ export class ReplManager {
                     console.log(chalk.dim(`\n(Tokens: ${input_tokens} in / ${output_tokens} out | Est. Cost: $${totalCost.toFixed(5)})`));
                 }
 
+                // Display context bar
+                const contextBar = this.contextVisualizer.getContextBar(this.history);
+                console.log(chalk.dim(`\n${contextBar}`));
+
                 console.log('');
                 this.history.push({ role: 'assistant', content: response.content });
+
+                // Auto-compact prompt when context is at 80%
+                const usage = this.contextVisualizer.calculateUsage(this.history);
+                if (usage.percentage >= 80) {
+                    this.history = await this.conversationCompacter.promptIfCompactNeeded(
+                        usage.percentage,
+                        this.history,
+                        this.modelClient
+                    );
+                }
             }
         } catch (error: any) {
             spinner.stop();
@@ -861,6 +986,180 @@ export class ReplManager {
             console.log(chalk.blue('\nLast message:'));
             console.log(lastMsg.content);
         }
+    }
+
+    private async handleSkillsCommand(args: string[]) {
+        const { SkillCreator, validateSkills } = await import('../skills/SkillCreator');
+
+        if (args.length < 1) {
+            // Show skills list by default
+            await this.handleSkillsCommand(['list']);
+            return;
+        }
+
+        const action = args[0];
+
+        switch (action) {
+            case 'list':
+                await this.handleSkillsList();
+                break;
+            case 'show':
+                if (args.length < 2) {
+                    console.log(chalk.red('Usage: /skills show <name>'));
+                    return;
+                }
+                await this.handleSkillsShow(args[1]);
+                break;
+            case 'create':
+                const creator = new SkillCreator(this.skillsManager);
+                await creator.run(args[1]);
+                // Re-discover skills after creation
+                await this.skillsManager.discoverSkills();
+                break;
+            case 'validate':
+                await validateSkills(this.skillsManager);
+                break;
+            default:
+                console.log(chalk.red(`Unknown skills action: ${action}`));
+                console.log(chalk.yellow('Available actions: list, show, create, validate'));
+        }
+    }
+
+    private async handleSkillsList(): Promise<void> {
+        const skills = this.skillsManager.getAllSkills();
+
+        if (skills.length === 0) {
+            console.log(chalk.yellow('No skills available.'));
+            console.log(chalk.dim('Create skills with: /skills create'));
+            console.log(chalk.dim('Add skills to: ~/.mentis/skills/ or .mentis/skills/'));
+            return;
+        }
+
+        console.log(chalk.cyan(`\nAvailable Skills (${skills.length}):\n`));
+
+        for (const skill of skills) {
+            const statusIcon = skill.isValid ? '✓' : '✗';
+            const typeLabel = skill.type === 'personal' ? 'Personal' : 'Project';
+
+            console.log(`${statusIcon} ${chalk.bold(skill.name)} (${typeLabel})`);
+            console.log(`  ${skill.description}`);
+
+            if (skill.allowedTools && skill.allowedTools.length > 0) {
+                console.log(chalk.dim(`  Allowed tools: ${skill.allowedTools.join(', ')}`));
+            }
+
+            if (!skill.isValid && skill.errors) {
+                console.log(chalk.red(`  Errors: ${skill.errors.join(', ')}`));
+            }
+
+            console.log('');
+        }
+    }
+
+    private async handleSkillsShow(name: string): Promise<void> {
+        const skill = await this.skillsManager.loadFullSkill(name);
+
+        if (!skill) {
+            console.log(chalk.red(`Skill "${name}" not found.`));
+            return;
+        }
+
+        console.log(chalk.cyan(`\n# ${skill.name}\n`));
+        console.log(chalk.dim(`Type: ${skill.type}`));
+        console.log(chalk.dim(`Path: ${skill.path}`));
+
+        if (skill.allowedTools && skill.allowedTools.length > 0) {
+            console.log(chalk.dim(`Allowed tools: ${skill.allowedTools.join(', ')}`));
+        }
+
+        console.log('');
+        console.log(skill.content || 'No content available');
+
+        // List supporting files
+        const files = this.skillsManager.listSkillFiles(name);
+        if (files.length > 0) {
+            console.log(chalk.dim(`\nSupporting files: ${files.join(', ')}`));
+        }
+    }
+
+    private async handleInitCommand(): Promise<void> {
+        const initializer = new ProjectInitializer();
+        await initializer.run();
+    }
+
+    private async handleCommandsCommand(args: string[]) {
+        if (args.length < 1) {
+            // Show commands list by default
+            await this.handleCommandsCommand(['list']);
+            return;
+        }
+
+        const action = args[0];
+
+        switch (action) {
+            case 'list':
+                await this.handleCommandsList();
+                break;
+            case 'create':
+                await this.handleCommandsCreate(args[1]);
+                break;
+            case 'validate':
+                await this.handleCommandsValidate();
+                break;
+            default:
+                console.log(chalk.red(`Unknown commands action: ${action}`));
+                console.log(chalk.yellow('Available actions: list, create, validate'));
+        }
+    }
+
+    private async handleCommandsList(): Promise<void> {
+        const commands = this.commandManager.getAllCommands();
+
+        if (commands.length === 0) {
+            console.log(chalk.yellow('No custom commands available.'));
+            console.log(chalk.dim('Create commands with: /commands create'));
+            console.log(chalk.dim('Add commands to: ~/.mentis/commands/ or .mentis/commands/'));
+            return;
+        }
+
+        console.log(chalk.cyan(`\nCustom Commands (${commands.length}):\n`));
+
+        // Group by namespace
+        const grouped = new Map<string, any[]>();
+        for (const cmd of commands) {
+            const ns = cmd.description.match(/\(([^)]+)\)/)?.[1] || cmd.type;
+            if (!grouped.has(ns)) {
+                grouped.set(ns, []);
+            }
+            grouped.get(ns)!.push(cmd);
+        }
+
+        for (const [namespace, cmds] of grouped) {
+            console.log(chalk.bold(`\n${namespace}`));
+            for (const cmd of cmds) {
+                const params = cmd.frontmatter['argument-hint'] ? ` ${cmd.frontmatter['argument-hint']}` : '';
+                console.log(`  /${cmd.name}${params}`);
+                console.log(`    ${cmd.description.replace(/\s*\([^)]+\)/, '')}`);
+
+                if (cmd.frontmatter['allowed-tools'] && cmd.frontmatter['allowed-tools'].length > 0) {
+                    console.log(chalk.dim(`    Allowed tools: ${cmd.frontmatter['allowed-tools'].join(', ')}`));
+                }
+            }
+        }
+        console.log('');
+    }
+
+    private async handleCommandsCreate(name?: string): Promise<void> {
+        const { CommandCreator } = await import('../commands/CommandCreator');
+        const creator = new CommandCreator(this.commandManager);
+        await creator.run(name);
+        // Re-discover commands after creation
+        await this.commandManager.discoverCommands();
+    }
+
+    private async handleCommandsValidate(): Promise<void> {
+        const { validateCommands } = await import('../commands/CommandCreator');
+        await validateCommands(this.commandManager);
     }
 
     private estimateCost(input: number, output: number): number {
