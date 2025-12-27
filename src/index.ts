@@ -4,18 +4,22 @@ import { ReplManager } from './repl/ReplManager';
 interface CliOptions {
     resume: boolean;
     yolo: boolean;
+    headless: boolean;
+    headlessPrompt?: string;
 }
 
 function parseArgs(): { command: string | null, options: CliOptions } {
     const args = process.argv.slice(2);
     const options: CliOptions = {
         resume: false,
-        yolo: false
+        yolo: false,
+        headless: false
     };
 
     let command: string | null = null;
 
-    for (const arg of args) {
+    for (let i = 0; i < args.length; i++) {
+        const arg = args[i];
         switch (arg) {
             case 'update':
                 command = 'update';
@@ -25,6 +29,11 @@ function parseArgs(): { command: string | null, options: CliOptions } {
                 break;
             case '--yolo':
                 options.yolo = true;
+                break;
+            case '-p':
+            case '--prompt':
+                options.headless = true;
+                options.headlessPrompt = args[++i] || '';
                 break;
             case '-h':
             case '--help':
@@ -36,14 +45,17 @@ Usage:
   mentis update             Update to latest version
   mentis --resume           Resume last session
   mentis --yolo             Auto-confirm mode (skip confirmations)
+  mentis -p "<prompt>"      Headless mode (non-interactive)
 
 Options:
   --resume                  Load latest checkpoint on start
   --yolo                    Skip all confirmation prompts
+  -p, --prompt <text>       Headless mode with prompt
   -h, --help                Show this help message
 
 Commands (in REPL):
   /help                     Show all available commands
+  /clear                    Clear conversation context
   /resume                   Resume last session
   /init                     Initialize project with .mentis.md
   /skills <list|show|create|validate>  Manage Agent Skills

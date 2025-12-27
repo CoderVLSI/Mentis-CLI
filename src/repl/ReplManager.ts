@@ -36,6 +36,8 @@ const HISTORY_FILE = path.join(os.homedir(), '.mentis_history');
 export interface CliOptions {
     resume: boolean;
     yolo: boolean;
+    headless: boolean;
+    headlessPrompt?: string;
 }
 
 export class ReplManager {
@@ -56,7 +58,7 @@ export class ReplManager {
     private activeSkill: string | null = null;  // Track currently active skill for allowed-tools
     private options: CliOptions;
 
-    constructor(options: CliOptions = { resume: false, yolo: false }) {
+    constructor(options: CliOptions = { resume: false, yolo: false, headless: false }) {
         this.options = options;
         this.configManager = new ConfigManager();
         this.contextManager = new ContextManager();
@@ -194,6 +196,13 @@ export class ReplManager {
     }
 
     public async start() {
+        // Headless mode: non-interactive, process prompt and exit
+        if (this.options.headless && this.options.headlessPrompt) {
+            await this.handleChat(this.options.headlessPrompt);
+            process.exit(0);
+            return;
+        }
+
         UIManager.renderDashboard({
             model: this.currentModelName,
             mode: this.mode,
@@ -370,6 +379,10 @@ export class ReplManager {
                 const UpdateManager = require('../utils/UpdateManager').UpdateManager;
                 const updater = new UpdateManager();
                 await updater.checkAndPerformUpdate(true);
+                break;
+            case '/clear':
+                this.history = [];
+                console.log(chalk.green('\n✓ Context cleared\n'));
                 break;
             case '/init':
                 await this.handleInitCommand();
