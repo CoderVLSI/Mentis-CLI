@@ -1,17 +1,15 @@
 /**
- * InputBox - Proper bordered input box like Claude Code
- * A minimalist input box with clean borders and proper styling
+ * InputBox - Claude Code style input with horizontal lines
+ * Displays > prompt between two horizontal lines like a box
  */
 
 import readline from 'readline';
 import chalk from 'chalk';
-import boxen from 'boxen';
 
 export interface InputBoxOptions {
     placeholder?: string;
     showHint?: boolean;
     hint?: string;
-    multiline?: boolean;
 }
 
 export class InputBox {
@@ -30,30 +28,25 @@ export class InputBox {
     }
 
     /**
-     * Create the input box with prompt
+     * Create horizontal line
      */
-    private createInputBox(): string {
-        const width = Math.min(this.getTerminalWidth() - 4, 100);
-        const prompt = chalk.cyan('❯');
-        const innerWidth = width - 4;
-
-        return boxen(chalk.white(prompt + ' '), {
-            padding: { left: 1, right: 1, top: 0, bottom: 0 },
-            borderStyle: 'round',
-            borderColor: 'gray',
-            width: innerWidth + 4
-        });
+    private createLine(): string {
+        const width = this.getTerminalWidth();
+        return chalk.gray('─'.repeat(width));
     }
 
     /**
-     * Get user input with a proper input box
+     * Get user input with horizontal lines around it
      */
     async prompt(options: InputBoxOptions = {}): Promise<string> {
         const { showHint = false, hint } = options;
 
-        // Display hint if provided
+        // Display top horizontal line
+        console.log(this.createLine());
+
+        // Display hint if provided (above the prompt, below the top line)
         if (showHint && hint) {
-            console.log(chalk.dim(`  💡 ${hint}`));
+            console.log(chalk.dim(`  ${hint}`));
         }
 
         return new Promise<string>((resolve) => {
@@ -61,7 +54,7 @@ export class InputBox {
             const rl = readline.createInterface({
                 input: process.stdin,
                 output: process.stdout,
-                prompt: chalk.cyan('❯ '),
+                prompt: chalk.cyan('> '),
                 history: this.history,
                 historySize: this.historySize,
                 completer: this.completer.bind(this)
@@ -70,12 +63,15 @@ export class InputBox {
             rl.prompt();
 
             rl.on('line', (line) => {
+                // Display bottom horizontal line after input
+                console.log(this.createLine());
                 rl.close();
                 resolve(line);
             });
 
             // Handle Ctrl+C
             rl.on('SIGINT', () => {
+                console.log(this.createLine());
                 rl.close();
                 resolve('/exit');
             });
@@ -132,8 +128,6 @@ export class InputBox {
             const bar = this.createProgressBar(contextPercent);
             console.log(chalk.dim(`  ${bar} ${messageCount} msgs ${color(contextPercent + '%')}`));
         }
-
-        console.log('');
     }
 
     /**
