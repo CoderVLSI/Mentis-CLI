@@ -43,11 +43,19 @@ export class SkillsManager {
         const discovered: Skill[] = [];
 
         if (includePersonal) {
-            discovered.push(...await this.discoverSkillsInDirectory(this.personalSkillsDir, 'personal'));
+            try {
+                discovered.push(...await this.discoverSkillsInDirectory(this.personalSkillsDir, 'personal'));
+            } catch (error: any) {
+                console.warn(`Warning: Failed to load personal skills from ${this.personalSkillsDir}: ${error.message}`);
+            }
         }
 
         if (includeProject) {
-            discovered.push(...await this.discoverSkillsInDirectory(this.projectSkillsDir, 'project'));
+            try {
+                discovered.push(...await this.discoverSkillsInDirectory(this.projectSkillsDir, 'project'));
+            } catch (error: any) {
+                console.warn(`Warning: Failed to load project skills from ${this.projectSkillsDir}: ${error.message}`);
+            }
         }
 
         // Store skills in map for quick lookup
@@ -102,6 +110,7 @@ export class SkillsManager {
             const frontmatter = this.extractFrontmatter(content);
 
             if (!frontmatter) {
+                console.warn(`Warning: Invalid or missing frontmatter in ${skillPath} (skipping)`);
                 return null;
             }
 
@@ -124,9 +133,22 @@ export class SkillsManager {
                 errors: validation.errors.length > 0 ? validation.errors : undefined
             };
 
+            // Log validation warnings
+            if (validation.warnings.length > 0) {
+                for (const warning of validation.warnings) {
+                    console.warn(`Warning (${skill.name}): ${warning}`);
+                }
+            }
+
             return skill;
         } catch (error: any) {
-            console.error(`Error loading skill metadata from ${skillPath}: ${error.message}`);
+            if (error.code === 'ENOENT') {
+                console.warn(`Warning: Skill file not found: ${skillPath}`);
+            } else if (error.code === 'EACCES') {
+                console.warn(`Warning: Permission denied reading skill: ${skillPath}`);
+            } else {
+                console.error(`Error loading skill metadata from ${skillPath}: ${error.message}`);
+            }
             return null;
         }
     }

@@ -1,13 +1,39 @@
 #!/usr/bin/env node
+
+/**
+ * Mentis CLI - An Agentic, Multi-Model CLI Coding Assistant
+ *
+ * @packageDocumentation
+ */
+
 import { ReplManager } from './repl/ReplManager';
 
+/**
+ * CLI options for controlling Mentis behavior
+ */
 interface CliOptions {
+    /** Resume from the last saved checkpoint */
     resume: boolean;
+    /** Auto-confirm all prompts (skip confirmations) */
     yolo: boolean;
+    /** Run in headless (non-interactive) mode */
     headless: boolean;
+    /** Prompt to execute in headless mode */
     headlessPrompt?: string;
 }
 
+/**
+ * Parse command line arguments
+ *
+ * @returns Parsed command and options
+ *
+ * @example
+ * ```bash
+ * mentis --resume
+ * mentis -p "fix the bug"
+ * mentis --yolo
+ * ```
+ */
 function parseArgs(): { command: string | null, options: CliOptions } {
     const args = process.argv.slice(2);
     const options: CliOptions = {
@@ -69,7 +95,12 @@ Commands (in REPL):
     return { command, options };
 }
 
-async function main() {
+/**
+ * Main entry point for Mentis CLI
+ *
+ * Parses arguments and starts the REPL or update manager
+ */
+async function main(): Promise<void> {
     const { command, options } = parseArgs();
 
     // Handle update command
@@ -85,6 +116,7 @@ async function main() {
     await repl.start();
 }
 
+// Start the application
 main().catch((error) => {
     console.error('Fatal error:', error);
     process.exit(1);

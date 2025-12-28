@@ -31,10 +31,18 @@ export class CommandManager {
         const discovered: Command[] = [];
 
         // Personal commands
-        discovered.push(...await this.discoverCommandsInDirectory(this.personalCommandsDir, 'personal'));
+        try {
+            discovered.push(...await this.discoverCommandsInDirectory(this.personalCommandsDir, 'personal'));
+        } catch (error: any) {
+            console.warn(`Warning: Failed to load personal commands from ${this.personalCommandsDir}: ${error.message}`);
+        }
 
         // Project commands
-        discovered.push(...await this.discoverCommandsInDirectory(this.projectCommandsDir, 'project'));
+        try {
+            discovered.push(...await this.discoverCommandsInDirectory(this.projectCommandsDir, 'project'));
+        } catch (error: any) {
+            console.warn(`Warning: Failed to load project commands from ${this.projectCommandsDir}: ${error.message}`);
+        }
 
         // Store commands in map (project commands override personal)
         for (const command of discovered) {
@@ -85,6 +93,7 @@ export class CommandManager {
             const commandName = this.getCommandName(commandPath, type);
 
             if (!commandName) {
+                console.warn(`Warning: Invalid command name in ${commandPath} (skipping)`);
                 return null;
             }
 
@@ -107,7 +116,13 @@ export class CommandManager {
 
             return command;
         } catch (error: any) {
-            console.error(`Error parsing command ${commandPath}: ${error.message}`);
+            if (error.code === 'ENOENT') {
+                console.warn(`Warning: Command file not found: ${commandPath}`);
+            } else if (error.code === 'EACCES') {
+                console.warn(`Warning: Permission denied reading command: ${commandPath}`);
+            } else {
+                console.error(`Error parsing command ${commandPath}: ${error.message}`);
+            }
             return null;
         }
     }
@@ -222,7 +237,10 @@ export class CommandManager {
         const bashRegex = /!`([^`]+)`/g;
         let bashMatch;
         while ((bashMatch = bashRegex.exec(content)) !== null) {
-            bashCommands.push(bashMatch[1]);
+            const bashCommand = bashMatch[1].trim();
+            if (bashCommand) {
+                bashCommands.push(bashCommand);
+            }
         }
 
         // Remove bash command markers
@@ -232,7 +250,10 @@ export class CommandManager {
         const fileRegex = /@([^\s]+)/g;
         let fileMatch;
         while ((fileMatch = fileRegex.exec(content)) !== null) {
-            fileReferences.push(fileMatch[1]);
+            const fileRef = fileMatch[1].trim();
+            if (fileRef && !fileReferences.includes(fileRef)) {
+                fileReferences.push(fileRef);
+            }
         }
 
         return { content, bashCommands, fileReferences };
