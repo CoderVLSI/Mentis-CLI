@@ -1,6 +1,6 @@
 /**
- * InputBox - Claude Code style input with horizontal lines
- * Displays > prompt between two horizontal lines like a box
+ * InputBox - Simple clean input with top line only
+ * Bottom line appears after submission (cross-platform compatible)
  */
 
 import readline from 'readline';
@@ -44,7 +44,7 @@ export class InputBox {
         // Display top horizontal line
         console.log(this.createLine());
 
-        // Display hint if provided (above the prompt, below the top line)
+        // Display hint if provided
         if (showHint && hint) {
             console.log(chalk.dim(`  ${hint}`));
         }
@@ -73,11 +73,6 @@ export class InputBox {
             rl.on('SIGINT', () => {
                 console.log(this.createLine());
                 rl.close();
-                resolve('/exit');
-            });
-
-            // Handle Ctrl+D for EOF
-            rl.on('close', () => {
                 resolve('/exit');
             });
         });
