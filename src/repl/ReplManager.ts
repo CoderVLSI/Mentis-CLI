@@ -7,6 +7,7 @@ import { OpenAIClient } from '../llm/OpenAIClient';
 
 import { ContextManager } from '../context/ContextManager';
 import { UIManager } from '../ui/UIManager';
+import { InputBox } from '../ui/InputBox';
 import { WriteFileTool, ReadFileTool, ListDirTool } from '../tools/FileTools';
 import { SearchFileTool } from '../tools/SearchTools';
 import { PersistentShellTool } from '../tools/PersistentShellTool';
@@ -229,53 +230,38 @@ export class ReplManager {
             } catch (e) { }
         }
 
+        // Initialize InputBox with history
+        const inputBox = new InputBox(commandHistory);
+
         while (true) {
-            // Minimalist Separator
-            console.log(chalk.gray('────────────────────────────────────────────────────────────────────────────────'));
+            // Calculate context usage for display
+            const usage = this.contextVisualizer.calculateUsage(this.history);
 
-            // Hint (Claude style puts it below, we put it above for standard terminal compatibility)
-            console.log(chalk.dim('  ? for shortcuts'));
-
-            const promptText = `> `;  // Clean prompt
-
-            // Use readline for basic input to support history
-            const answer = await new Promise<string>((resolve) => {
-                const rl = readline.createInterface({
-                    input: process.stdin,
-                    output: process.stdout,
-                    history: commandHistory,
-                    historySize: 1000,
-                    prompt: promptText
-                });
-
-                rl.prompt();
-
-                rl.on('line', (line) => {
-                    rl.close();
-                    resolve(line);
-                });
+            // Display enhanced input frame
+            inputBox.displayFrame({
+                messageCount: this.history.length,
+                contextPercent: usage.percentage
             });
 
-            // Update history manually or grab from rl? 
-            // rl.history gets updated when user hits enter.
-            // But we closed rl. We should manually save the input to our tracking array and file.
+            // Get styled input
+            const answer = await inputBox.prompt({
+                showHint: this.history.length === 0,
+                hint: 'Type your message or /help for commands'
+            });
+
             const input = answer.trim();
 
             if (input) {
-                // Update in-memory history (for next readline instance)
-                // Readline history has newest at 0.
-                // Avoid duplicates if needed, but standard shell keeps them.
-                if (commandHistory[0] !== input) {
-                    commandHistory.unshift(input);
-                }
+                // Update history via InputBox
+                inputBox.addToHistory(input);
 
-                // Append to file (as standard log, so append at end)
+                // Append to file
                 try {
                     fs.appendFileSync(HISTORY_FILE, input + '\n');
                 } catch (e) { }
             }
 
-            if (!answer.trim()) continue; // Skip empty but allow it to close readline loop
+            if (!input) continue;
 
             if (input.startsWith('/')) {
                 await this.handleCommand(input);
