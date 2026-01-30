@@ -1,6 +1,6 @@
 {
   "name": "@indiccoder/mentis-cli",
-  "version": "1.1.4",
+  "version": "1.1.6",
   "publishConfig": {
     "access": "public"
   },
@@ -71,10 +71,20 @@
   "jest": {
     "preset": "ts-jest",
     "testEnvironment": "node",
-    "roots": ["<rootDir>/src"],
-    "testMatch": ["**/__tests__/**/*.ts", "**/?(*.)+(spec|test).ts"],
-    "collectCoverageFrom": ["src/**/*.ts", "!src/**/*.d.ts"],
-    "transformIgnorePatterns": ["node_modules/(?!(chalk)/)"],
+    "roots": [
+      "<rootDir>/src"
+    ],
+    "testMatch": [
+      "**/__tests__/**/*.ts",
+      "**/?(*.)+(spec|test).ts"
+    ],
+    "collectCoverageFrom": [
+      "src/**/*.ts",
+      "!src/**/*.d.ts"
+    ],
+    "transformIgnorePatterns": [
+      "node_modules/(?!(chalk)/)"
+    ],
     "coverageThreshold": {
       "global": {
         "branches": 20,

@@ -212,10 +212,17 @@ export class ReplManager {
 
         // Auto-resume if --resume flag is set
         if (this.options.resume) {
-            const cp = this.checkpointManager.load('latest');
+            // Prefer local (per-directory) session, fall back to global
+            const cwd = process.cwd();
+            let cp = this.checkpointManager.loadLocalSession(cwd);
+            let source = 'local';
+            if (!cp) {
+                cp = this.checkpointManager.load('latest');
+                source = 'global';
+            }
             if (cp) {
                 this.history = cp.history;
-                console.log(chalk.green(`\n✓ Resumed session from ${new Date(cp.timestamp).toLocaleString()}`));
+                console.log(chalk.green(`\n✓ Resumed ${source} session from ${new Date(cp.timestamp).toLocaleString()}`));
                 console.log(chalk.dim(`  Messages: ${this.history.length}\n`));
             } else {
                 console.log(chalk.yellow('\n⚠ No previous session found to resume.\n'));
@@ -355,10 +362,12 @@ export class ReplManager {
                 await this.handleConfigCommand();
                 break;
             case '/exit':
-                // Auto-save on exit
+                // Auto-save on exit (both local and global)
+                const cwd = process.cwd();
+                this.checkpointManager.saveLocalSession(cwd, this.history, this.contextManager.getFiles());
                 this.checkpointManager.save('latest', this.history, this.contextManager.getFiles());
                 this.shell.kill(); // Kill the shell process
-                console.log(chalk.green('Session saved. Goodbye!'));
+                console.log(chalk.green('Session saved to .mentis/sessions/. Goodbye!'));
                 process.exit(0);
                 break;
             case '/update':
@@ -952,11 +961,114 @@ export class ReplManager {
     }
 
     private async handleResumeCommand() {
-        if (!this.checkpointManager.exists('latest')) {
-            console.log(chalk.yellow('No previous session found to resume.'));
+        const cwd = process.cwd();
+        const localSessions = this.checkpointManager.listLocalSessions(cwd);
+        const globalCheckpoints = this.checkpointManager.list();
+
+        if (localSessions.length === 0 && globalCheckpoints.length === 0) {
+            console.log(chalk.yellow('No previous sessions found to resume.'));
             return;
         }
-        await this.loadCheckpoint('latest');
+
+        // Header like Claude's "Resume Session"
+        console.log('');
+        console.log(chalk.cyan.bold('Resume Session'));
+        console.log('');
+
+        // Helper for relative time
+        const relativeTime = (ts: number) => {
+            const diff = Date.now() - ts;
+            const mins = Math.floor(diff / 60000);
+            const hours = Math.floor(diff / 3600000);
+            const days = Math.floor(diff / 86400000);
+            if (days > 0) return `${days} day${days > 1 ? 's' : ''} ago`;
+            if (hours > 0) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+            if (mins > 0) return `${mins} min${mins > 1 ? 's' : ''} ago`;
+            return 'just now';
+        };
+
+        // Build choices with simple single-line formatting
+        const choices: Array<{ name: string; value: { type: string; id: string } }> = [];
+
+        // Local sessions first
+        for (const session of localSessions) {
+            const timeAgo = relativeTime(session.timestamp);
+            const shortPreview = session.preview.substring(0, 30).replace(/\n/g, ' ');
+            choices.push({
+                name: `${shortPreview}... (${timeAgo}, ${session.messageCount} msgs)`,
+                value: { type: 'local', id: session.id }
+            });
+        }
+
+        // Global checkpoints as fallback
+        if (localSessions.length === 0 && globalCheckpoints.length > 0) {
+            for (const name of globalCheckpoints) {
+                const cp = this.checkpointManager.load(name);
+                const timeAgo = cp ? relativeTime(cp.timestamp) : '';
+                const msgCount = cp?.history?.length || 0;
+                const preview = cp?.history?.find(m => m.role === 'user')?.content?.substring(0, 40)?.replace(/\n/g, ' ') || name;
+                choices.push({
+                    name: `${preview}${preview.length >= 40 ? '...' : ''} — ${timeAgo} · ${msgCount} msgs`,
+                    value: { type: 'global', id: name }
+                });
+            }
+        }
+
+        // Show hint
+        console.log(chalk.dim('  ↑/↓ to navigate · Enter to select · Esc to cancel'));
+        console.log('');
+
+        // Guard against empty choices (would crash inquirer)
+        if (choices.length === 0) {
+            console.log(chalk.yellow('No sessions available. Start a conversation and /exit to save.'));
+            return;
+        }
+
+        const { selected } = await inquirer.prompt([{
+            type: 'rawlist',
+            name: 'selected',
+            message: 'Pick a session:',
+            choices,
+            pageSize: 10
+        }]);
+
+        if (selected.type === 'local') {
+            await this.loadLocalCheckpoint(cwd, selected.id);
+        } else if (selected.type === 'global') {
+            await this.loadCheckpoint(selected.id);
+        }
+    }
+
+    private async loadLocalCheckpoint(cwd: string, sessionId?: string) {
+        const cp = this.checkpointManager.loadLocalSession(cwd, sessionId);
+        if (!cp) {
+            console.log(chalk.red('Session not found.'));
+            return;
+        }
+
+        this.history = cp.history;
+        this.contextManager.clear();
+
+        // Restore context files
+        if (cp.files && cp.files.length > 0) {
+            console.log(chalk.dim('Restoring context files...'));
+            for (const file of cp.files) {
+                await this.contextManager.addFile(file);
+            }
+        }
+        console.log(chalk.green(`✓ Resumed session (${new Date(cp.timestamp).toLocaleString()})`));
+        console.log(chalk.dim(`  Messages: ${this.history.length}`));
+
+        // Re-display last assistant message if any
+        const lastMsg = this.history[this.history.length - 1];
+        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.content) {
+            console.log(chalk.blue('\nLast response:'));
+            const preview = lastMsg.content.length > 200
+                ? lastMsg.content.substring(0, 200) + '...'
+                : lastMsg.content;
+            console.log(chalk.dim(preview));
+        }
+        console.log('');
     }
 
     private async handleCheckpointCommand(args: string[]) {
