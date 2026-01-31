@@ -147,7 +147,7 @@ export class ReplManager {
             'list_dir': 'ListDir',
             'search_file': 'SearchFile',
             'run_shell': 'RunShell',
-            'web_search': 'WebSearch',
+            'search_web': 'WebSearch',
             'git_status': 'GitStatus',
             'git_diff': 'GitDiff',
             'git_commit': 'GitCommit',
@@ -299,7 +299,6 @@ export class ReplManager {
                 console.log('  /skills <list|show|create|validate> - Manage Agent Skills');
                 console.log('  /commands <list|create|validate> - Manage Custom Commands');
                 console.log('  /resume  - Resume last session');
-                console.log('  /checkpoint <save|load|list> [name] - Manage checkpoints');
                 console.log('  /search <query> - Search codebase');
                 console.log('  /run <cmd> - Run shell command');
                 console.log('  /commit [msg] - Git commit all changes');
@@ -307,15 +306,13 @@ export class ReplManager {
                 break;
             case '/plan':
                 this.mode = 'PLAN';
-                console.log(chalk.blue('Switched to PLAN mode.'));
+                UIManager.logBullet('Entered plan mode', 'magenta');
+                UIManager.logSystem('Mentis is designing the solution...');
                 break;
             case '/build':
                 this.mode = 'BUILD';
-                console.log(chalk.yellow('Switched to BUILD mode.'));
-                break;
-            case '/build':
-                this.mode = 'BUILD';
-                console.log(chalk.yellow('Switched to BUILD mode.'));
+                UIManager.logBullet('Entered build mode', 'green');
+                UIManager.logSystem('Mentis is building the solution...');
                 break;
             case '/model':
                 await this.handleModelCommand(args);
@@ -332,9 +329,6 @@ export class ReplManager {
                 break;
             case '/resume':
                 await this.handleResumeCommand();
-                break;
-            case '/checkpoint':
-                await this.handleCheckpointCommand(args);
                 break;
             case '/clear':
                 this.history = [];
@@ -393,6 +387,27 @@ export class ReplManager {
         }
     }
 
+    private getLoadingMessage(): string {
+        const messages = [
+            "Reticulating splines...",
+            "Consulting the silicon oracle...",
+            "Compiling neural pathways...",
+            "Optimizing flux capacitors...",
+            "Analyzing project structure...",
+            "Deciphering your intent...",
+            "Brewing digital coffee...",
+            "Checking for infinite loops...",
+            "Connecting to the matrix...",
+            "Calculating the answer (42?)...",
+            "Refactoring the universe...",
+            "Downloading more RAM...",
+            "Searching for bugs...",
+            "Asking the rubber duck...",
+            "Hyperspacing..."
+        ];
+        return messages[Math.floor(Math.random() * messages.length)];
+    }
+
     private async handleChat(input: string) {
         const context = this.contextManager.getContextString();
         const skillsContext = this.skillsManager.getSkillsContext();
@@ -424,7 +439,8 @@ export class ReplManager {
 
         this.history.push({ role: 'user', content: fullInput });
 
-        let spinner = ora('Thinking... (Press Esc to cancel)').start();
+        const msg = this.getLoadingMessage();
+        let spinner = ora({ text: `  ${msg}`, color: 'cyan' }).start();
         const controller = new AbortController();
 
         // Setup cancellation listener
@@ -553,7 +569,8 @@ export class ReplManager {
 
                 if (controller.signal.aborted) throw new Error('Request cancelled by user');
 
-                spinner = ora('Thinking (processing tools)...').start();
+                const msg = this.getLoadingMessage();
+                spinner = ora({ text: `  ${msg}`, color: 'cyan' }).start();
 
                 // Get next response
                 response = await this.modelClient.chat(this.history, this.tools.map(t => ({
@@ -570,7 +587,7 @@ export class ReplManager {
 
             console.log('');
             if (response.content) {
-                console.log(chalk.bold.blue('Mentis:'));
+                UIManager.logBullet('Mentis:', 'magenta');
                 console.log(marked(response.content));
 
                 if (response.usage) {
@@ -1069,28 +1086,6 @@ export class ReplManager {
             console.log(chalk.dim(preview));
         }
         console.log('');
-    }
-
-    private async handleCheckpointCommand(args: string[]) {
-        if (args.length < 1) {
-            console.log(chalk.red('Usage: /checkpoint <save|load|list> [name]'));
-            return;
-        }
-        const action = args[0];
-        const name = args[1] || 'default';
-
-        if (action === 'save') {
-            this.checkpointManager.save(name, this.history, this.contextManager.getFiles());
-            console.log(chalk.green(`Checkpoint '${name}' saved.`));
-        } else if (action === 'load') {
-            await this.loadCheckpoint(name);
-        } else if (action === 'list') {
-            const points = this.checkpointManager.list();
-            console.log(chalk.cyan('Available Checkpoints:'));
-            points.forEach(p => console.log(` - ${p}`));
-        } else {
-            console.log(chalk.red(`Unknown action: ${action}`));
-        }
     }
 
     private async loadCheckpoint(name: string) {
