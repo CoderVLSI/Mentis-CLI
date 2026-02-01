@@ -62,18 +62,33 @@ export class InputBox {
 
             rl.prompt();
 
+            const cleanup = () => {
+                rl.close();
+                rl.removeAllListeners();
+                // Explicitly ensure raw mode is off to prevent terminal freeze
+                if (process.stdin.isTTY) {
+                    process.stdin.setRawMode(false);
+                }
+            };
+
             rl.on('line', (line) => {
                 // Display bottom horizontal line after input
                 console.log(this.createLine());
-                rl.close();
+                cleanup();
                 resolve(line);
             });
 
             // Handle Ctrl+C
             rl.on('SIGINT', () => {
                 console.log(this.createLine());
-                rl.close();
+                cleanup();
                 resolve('/exit');
+            });
+
+            // Handle stream errors or unexpected close
+            rl.on('close', () => {
+                // Should already be cleaned up, but safe to ensure
+                if (process.stdin.isTTY) process.stdin.setRawMode(false);
             });
         });
     }

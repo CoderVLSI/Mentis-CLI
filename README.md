@@ -53,6 +53,23 @@ Type `/model` inside the CLI to launch the interactive configuration wizard:
 
 *Credentials are stored securely in `~/.mentisrc`.*
 
+### Web Search (Optional)
+
+Mentis includes web search capabilities for documentation and error solving. To enable it:
+
+1. **Get a free Tavily API key** at https://tavily.com
+2. Add to your `.env` file in your project directory:
+   ```
+   TAVILY_API_KEY=your_key_here
+   ```
+
+Alternatively, you can use **Exa** via MCP:
+```bash
+export EXA_API_KEY=your_key_here
+mentis
+/mcp connect "Exa Search"
+```
+
 ## 📖 Usage
 
 ### Modes

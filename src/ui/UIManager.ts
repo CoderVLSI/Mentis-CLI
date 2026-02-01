@@ -84,4 +84,17 @@ export class UIManager {
     public static printSeparator() {
         console.log(chalk.gray('──────────────────────────────────────────────────'));
     }
+
+    public static logBullet(text: string, color: 'cyan' | 'green' | 'yellow' | 'red' | 'blue' | 'magenta' | 'white' = 'white') {
+        const bullet = color === 'white' ? '●' : chalk[color]('●');
+        console.log(`  ${bullet} ${text}`);
+    }
+
+    public static logSystem(text: string) {
+        console.log(chalk.dim(`    ${text}`));
+    }
+
+    public static logTransition(text: string) {
+        console.log(`  ${chalk.red('+')} ${chalk.red(text)}`);
+    }
 }

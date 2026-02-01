@@ -68,7 +68,13 @@ export class PersistentShell {
             this.rejectCallback = reject;
             this.buffer = '';
 
-            const cleanCommand = command.replace(/\n/g, '; ');
+            let cleanCommand = command.replace(/\n/g, '; ');
+
+            // Fix: PowerShell alias 'curl' -> 'Invoke-WebRequest' causes issues for linux-style curl commands.
+            // Force usage of 'curl.exe' if on Windows.
+            if (os.platform() === 'win32') {
+                cleanCommand = cleanCommand.replace(/(^|[\s|;&])curl(\s|$)/g, '$1curl.exe$2');
+            }
 
             const fullCommand = `${cleanCommand}; echo "${this.delimiter}"\n`;
 

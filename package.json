@@ -38,6 +38,7 @@
     "cli-cursor": "^5.0.0",
     "cli-highlight": "^2.1.11",
     "commander": "^14.0.2",
+    "diff": "^8.0.3",
     "dotenv": "^17.2.3",
     "duck-duck-scrape": "^2.2.7",
     "fast-glob": "^3.3.3",

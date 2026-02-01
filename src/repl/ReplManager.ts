@@ -8,7 +8,11 @@ import { OpenAIClient } from '../llm/OpenAIClient';
 import { ContextManager } from '../context/ContextManager';
 import { UIManager } from '../ui/UIManager';
 import { InputBox } from '../ui/InputBox';
-import { WriteFileTool, ReadFileTool, ListDirTool } from '../tools/FileTools';
+import { DiffViewer } from '../ui/DiffViewer';
+import { MultiFileSelector } from '../ui/MultiFileSelector';
+import { ToolExecutor } from '../ui/ToolExecutor';
+import { PlanModeUI } from '../ui/PlanModeUI';
+import { WriteFileTool, ReadFileTool, ListDirTool, EditFileTool, AskQuestionTool, PlanModeTool } from '../tools/FileTools';
 import { SearchFileTool } from '../tools/SearchTools';
 import { PersistentShellTool } from '../tools/PersistentShellTool';
 import { PersistentShell } from './PersistentShell';
@@ -16,6 +20,7 @@ import { WebSearchTool } from '../tools/WebSearchTool';
 import { GitStatusTool, GitDiffTool, GitCommitTool, GitPushTool, GitPullTool } from '../tools/GitTools';
 import { Tool } from '../tools/Tool';
 import { McpClient } from '../mcp/McpClient';
+import { McpManager } from '../mcp/McpManager';
 
 import { CheckpointManager } from '../checkpoint/CheckpointManager';
 import { SkillsManager } from '../skills/SkillsManager';
@@ -54,6 +59,7 @@ export class ReplManager {
     private mode: 'PLAN' | 'BUILD' = 'BUILD';
     private tools: Tool[] = [];
     private mcpClients: McpClient[] = [];
+    private mcpManager: McpManager;
     private shell: PersistentShell;
     private currentModelName: string = 'Unknown';
     private activeSkill: string | null = null;  // Track currently active skill for allowed-tools
@@ -68,11 +74,15 @@ export class ReplManager {
         this.contextVisualizer = new ContextVisualizer();
         this.conversationCompacter = new ConversationCompacter();
         this.commandManager = new CommandManager();
+        this.mcpManager = new McpManager();
         this.shell = new PersistentShell();
 
         // Create tools array without skill tools first
         this.tools = [
+            new PlanModeTool(), // AI can suggest plan mode for complex tasks
+            new AskQuestionTool(), // For plan mode questions
             new WriteFileTool(),
+            new EditFileTool(),
             new ReadFileTool(),
             new ListDirTool(),
             new SearchFileTool(), // grep
@@ -111,6 +121,36 @@ export class ReplManager {
 
         // Add skill tools to the tools list
         // Pass callback to LoadSkillTool to track active skill
+        this.tools.push(
+            new LoadSkillTool(this.skillsManager, (skill) => {
+                this.activeSkill = skill ? skill.name : null;
+            }),
+            new ListSkillsTool(this.skillsManager),
+            new ReadSkillFileTool(this.skillsManager),
+            new SlashCommandTool(this.commandManager),
+            new ListCommandsTool(this.commandManager)
+        );
+
+        // Auto-connect to MCP servers
+        await this.mcpManager.autoConnect();
+        this.refreshToolsFromMcp();
+    }
+
+    /**
+     * Refresh tools list from MCP connections
+     */
+    private refreshToolsFromMcp() {
+        // Remove existing MCP tools (keep core tools)
+        this.tools = this.tools.filter(tool => 
+            !tool.name.startsWith('mcp_') && 
+            !['load_skill', 'list_skills', 'read_skill_file', 'slash_command', 'list_commands'].includes(tool.name)
+        );
+
+        // Add MCP tools
+        const mcpTools = this.mcpManager.getAllTools();
+        this.tools.push(...mcpTools);
+
+        // Re-add skill tools
         this.tools.push(
             new LoadSkillTool(this.skillsManager, (skill) => {
                 this.activeSkill = skill ? skill.name : null;
@@ -307,11 +347,13 @@ export class ReplManager {
             case '/plan':
                 this.mode = 'PLAN';
                 UIManager.logBullet('Entered plan mode', 'magenta');
-                UIManager.logSystem('Mentis is designing the solution...');
+                PlanModeUI.showPlanHeader();
+                PlanModeUI.showQAHistory();
                 break;
             case '/build':
                 this.mode = 'BUILD';
                 UIManager.logBullet('Entered build mode', 'green');
+                PlanModeUI.showPlanSummary();
                 UIManager.logSystem('Mentis is building the solution...');
                 break;
             case '/model':
@@ -361,6 +403,7 @@ export class ReplManager {
                 this.checkpointManager.saveLocalSession(cwd, this.history, this.contextManager.getFiles());
                 this.checkpointManager.save('latest', this.history, this.contextManager.getFiles());
                 this.shell.kill(); // Kill the shell process
+                this.mcpManager.disconnectAll(); // Disconnect all MCP connections
                 console.log(chalk.green('Session saved to .mentis/sessions/. Goodbye!'));
                 process.exit(0);
                 break;
@@ -488,55 +531,55 @@ export class ReplManager {
                     const toolArgsStr = toolCall.function.arguments;
                     const toolArgs = JSON.parse(toolArgsStr);
 
-                    // Truncate long arguments
-                    let displayArgs = toolArgsStr;
-                    if (displayArgs.length > 100) {
-                        displayArgs = displayArgs.substring(0, 100) + '...';
-                    }
-                    console.log(chalk.dim(`  [Action] ${toolName}(${displayArgs})`));
+                    // Show tool execution with visual feedback
+                    ToolExecutor.showInline(toolName, toolArgs);
 
-                    // Safety check for write_file
+                    // Safety checks for write/edit operations
                     // Skip confirmation if tool is allowed by active skill
-                    if (toolName === 'write_file' && !this.isToolAllowedBySkill('Write')) {
+                    let approved = true;
+                    const needsApproval = (toolName === 'write_file' || toolName === 'edit_file' || toolName === 'read_file')
+                                        && !this.isToolAllowedBySkill(toolName === 'read_file' ? 'Read' : 'Write');
+
+                    if (needsApproval) {
                         // Pause cancellation listener during user interaction
                         if (process.stdin.isTTY) {
                             process.stdin.removeListener('keypress', keyListener);
                             process.stdin.setRawMode(false);
-                            process.stdin.pause(); // Explicitly pause before inquirer
+                            process.stdin.pause();
                         }
 
-                        spinner.stop(); // Stop spinner to allow input
+                        // Handle write_file with diff preview
+                        if (toolName === 'write_file') {
+                            approved = await this.handleWriteApproval(toolArgs.filePath, toolArgs.content);
+                        }
 
-                        const { confirm } = await inquirer.prompt([
-                            {
-                                type: 'confirm',
-                                name: 'confirm',
-                                message: `Allow writing to ${chalk.yellow(toolArgs.filePath)}?`,
-                                default: true
-                            }
-                        ]);
+                        // Handle edit_file with diff preview
+                        if (toolName === 'edit_file') {
+                            approved = await this.handleEditApproval(toolArgs);
+                        }
+
+                        // Handle read_file with multi-file selector
+                        if (toolName === 'read_file') {
+                            approved = await this.handleReadApproval(toolArgs.filePath);
+                        }
 
                         // Resume cancellation listener
                         if (process.stdin.isTTY) {
                             process.stdin.setRawMode(true);
-                            process.stdin.resume(); // Explicitly resume
+                            process.stdin.resume();
                             process.stdin.on('keypress', keyListener);
                         }
+                    }
 
-                        if (!confirm) {
-                            this.history.push({
-                                role: 'tool',
-                                tool_call_id: toolCall.id,
-                                name: toolName,
-                                content: 'Error: User rejected write operation.'
-                            });
-                            console.log(chalk.red('  Action cancelled by user.'));
-                            // Do not restart spinner here. Let the outer loop logic or next step handle it.
-                            // If we continue, we go to next tool or finish loop.
-                            // If finished, lines following loop will start spinner.
-                            continue;
-                        }
-                        spinner = ora('Executing...').start();
+                    if (!approved) {
+                        this.history.push({
+                            role: 'tool',
+                            tool_call_id: toolCall.id,
+                            name: toolName,
+                            content: 'Error: User rejected operation.'
+                        });
+                        console.log(chalk.red('  Action cancelled by user.'));
+                        continue;
                     }
 
                     const tool = this.tools.find(t => t.name === toolName);
@@ -544,19 +587,23 @@ export class ReplManager {
 
                     if (tool) {
                         try {
-                            // Tools typically run synchronously or promise-based. 
-                            // Verify if we want Tools to be cancellable?
-                            // For now, if aborted during tool, we let tool finish but stop loop.
                             result = await tool.execute(toolArgs);
+
+                            // Record Q&A for ask_question tool in plan mode
+                            if (toolName === 'ask_question' && this.mode === 'PLAN') {
+                                PlanModeUI.recordQA(toolArgs.question, result);
+                            }
+
+                            // Handle plan mode switch approval
+                            if (toolName === 'enter_plan_mode' && result.includes('User approved')) {
+                                this.mode = 'PLAN';
+                                UIManager.logBullet('Auto-switched to plan mode', 'magenta');
+                            }
                         } catch (e: any) {
                             result = `Error: ${e.message}`;
                         }
                     } else {
                         result = `Error: Tool ${toolName} not found.`;
-                    }
-
-                    if (spinner.isSpinning) {
-                        spinner.stop();
                     }
 
                     this.history.push({
@@ -907,73 +954,164 @@ export class ReplManager {
     }
 
     private async handleMcpCommand(args: string[]) {
-        if (args.length < 1) {
-            console.log(chalk.red('Usage: /mcp <connect|list|disconnect> [args]'));
+        if (args.length === 0) {
+            console.log(chalk.red('Usage: /mcp <list|connect|disconnect|add|remove|test|config> [args]'));
+            console.log(chalk.dim('\nExamples:'));
+            console.log(chalk.dim('  /mcp list                    - List all MCP servers'));
+            console.log(chalk.dim('  /mcp connect Exa\\ Search     - Connect to Exa Search'));
+            console.log(chalk.dim('  /mcp disconnect all           - Disconnect all servers'));
+            console.log(chalk.dim('  /mcp add MyServer npx -y @my/mcp-server'));
+            console.log(chalk.dim('  /mcp test Exa\\ Search         - Test connection'));
+            console.log(chalk.dim('  /mcp config                   - Show configuration'));
             return;
         }
 
         const action = args[0];
 
-        if (action === 'connect') {
-            const commandParts = args.slice(1);
-            if (commandParts.length === 0) {
-                console.log(chalk.red('Usage: /mcp connect <command> [args...]'));
-                return;
-            }
+        switch (action) {
+            case 'list':
+                await this.mcpManager.listServers();
+                break;
 
-            // Example: /mcp connect npx -y @modelcontextprotocol/server-memory
-            // On Windows, npx might be npx.cmd
-            const cmd = process.platform === 'win32' && commandParts[0] === 'npx' ? 'npx.cmd' : commandParts[0];
-            const cmdArgs = commandParts.slice(1);
+            case 'connect':
+                if (args.length < 2) {
+                    // Show interactive list of available servers
+                    const availableServers = this.mcpManager.getAvailableServers();
+                    if (availableServers.length === 0) {
+                        console.log(chalk.yellow('No MCP servers configured. Use /mcp add to add one.'));
+                        return;
+                    }
 
-            const spinner = ora(`Connecting to MCP server: ${cmd} ${cmdArgs.join(' ')}...`).start();
+                    const { serverName } = await inquirer.prompt([{
+                        type: 'list',
+                        name: 'serverName',
+                        message: 'Select server to connect:',
+                        choices: availableServers.map(s => s.name)
+                    }]);
 
-            try {
-                const client = new McpClient(cmd, cmdArgs);
-                await client.initialize();
-                const mcpTools = await client.listTools();
+                    await this.mcpManager.connectToServer(serverName);
+                    this.refreshToolsFromMcp();
+                } else {
+                    const serverName = args.slice(1).join(' ');
+                    await this.mcpManager.connectToServer(serverName);
+                    this.refreshToolsFromMcp();
+                }
+                break;
 
-                this.mcpClients.push(client);
-                this.tools.push(...mcpTools);
+            case 'disconnect':
+                if (args.length < 2) {
+                    // Interactive disconnect
+                    const connectedServers = this.mcpManager.getServerNames();
+                    if (connectedServers.length === 0) {
+                        console.log(chalk.yellow('No MCP connections to disconnect.'));
+                        return;
+                    }
 
-                spinner.succeed(chalk.green(`Connected to ${client.serverName}!`));
-                console.log(chalk.green(`Added ${mcpTools.length} tools:`));
-                mcpTools.forEach(t => console.log(chalk.dim(`  - ${t.name}: ${t.description.substring(0, 50)}...`)));
+                    const { serverName } = await inquirer.prompt([{
+                        type: 'list',
+                        name: 'serverName',
+                        message: 'Select server to disconnect:',
+                        choices: [...connectedServers, 'all']
+                    }]);
 
-            } catch (e: any) {
-                spinner.fail(chalk.red(`Failed to connect: ${e.message}`));
-            }
+                    if (serverName === 'all') {
+                        this.mcpManager.disconnectAll();
+                        this.refreshToolsFromMcp();
+                    } else {
+                        await this.mcpManager.disconnectFromServer(serverName);
+                        this.refreshToolsFromMcp();
+                    }
+                } else {
+                    const serverName = args.slice(1).join(' ');
+                    if (serverName === 'all') {
+                        this.mcpManager.disconnectAll();
+                        this.refreshToolsFromMcp();
+                    } else {
+                        await this.mcpManager.disconnectFromServer(serverName);
+                        this.refreshToolsFromMcp();
+                    }
+                }
+                break;
 
-        } else if (action === 'list') {
-            if (this.mcpClients.length === 0) {
-                console.log('No active MCP connections.');
-            } else {
-                console.log(chalk.cyan('Active MCP Connections:'));
-                this.mcpClients.forEach((client, idx) => {
-                    console.log(`${idx + 1}. ${client.serverName}`);
-                });
-            }
-        } else if (action === 'disconnect') {
-            // Basic disconnect all for now or by index if we wanted
-            console.log(chalk.yellow('Disconnecting all MCP clients...'));
-            this.mcpClients.forEach(c => c.disconnect());
-            this.mcpClients = [];
-            // Re-init core tools
-            this.tools = [
-                new WriteFileTool(),
-                new ReadFileTool(),
-                new ListDirTool(),
-                new SearchFileTool(),
-                new PersistentShellTool(this.shell),
-                new WebSearchTool(),
-                new GitStatusTool(),
-                new GitDiffTool(),
-                new GitCommitTool(),
-                new GitPushTool(),
-                new GitPullTool()
-            ];
-        } else {
-            console.log(chalk.red(`Unknown MCP action: ${action}`));
+            case 'add':
+                if (args.length < 3) {
+                    console.log(chalk.red('Usage: /mcp add <name> <command> [args...]'));
+                    console.log(chalk.dim('\nExamples:'));
+                    console.log(chalk.dim('  /mcp add "My Server" npx -y @my/mcp-server'));
+                    console.log(chalk.dim('  /mcp add "Local Server" node /path/to/server.js'));
+                    return;
+                }
+
+                const name = args[1];
+                const command = args[2];
+                const mcpArgs = args.slice(3);
+
+                const { description } = await inquirer.prompt([{
+                    type: 'input',
+                    name: 'description',
+                    message: 'Description (optional):',
+                    default: ''
+                }]);
+
+                await this.mcpManager.addServer(name, command, mcpArgs, description);
+                break;
+
+            case 'remove':
+                if (args.length < 2) {
+                    // Interactive remove
+                    const availableServers = this.mcpManager.getAvailableServers();
+                    if (availableServers.length === 0) {
+                        console.log(chalk.yellow('No MCP servers configured.'));
+                        return;
+                    }
+
+                    const { serverName } = await inquirer.prompt([{
+                        type: 'list',
+                        name: 'serverName',
+                        message: 'Select server to remove:',
+                        choices: availableServers.map(s => s.name)
+                    }]);
+
+                    await this.mcpManager.removeServer(serverName);
+                } else {
+                    const serverName = args.slice(1).join(' ');
+                    await this.mcpManager.removeServer(serverName);
+                }
+                break;
+
+            case 'test':
+                if (args.length < 2) {
+                    // Interactive test
+                    const connectedServers = this.mcpManager.getServerNames();
+                    if (connectedServers.length === 0) {
+                        console.log(chalk.yellow('No MCP connections to test.'));
+                        return;
+                    }
+
+                    const { serverName } = await inquirer.prompt([{
+                        type: 'list',
+                        name: 'serverName',
+                        message: 'Select server to test:',
+                        choices: connectedServers
+                    }]);
+
+                    await this.mcpManager.testConnection(serverName);
+                } else {
+                    const serverName = args.slice(1).join(' ');
+                    await this.mcpManager.testConnection(serverName);
+                }
+                break;
+
+            case 'config':
+                const config = this.mcpManager.getConfig().getConfig();
+                console.log(chalk.cyan('\nMCP Configuration:\n'));
+                console.log(JSON.stringify(config, null, 2));
+                console.log(chalk.dim(`\nConfig file: ${require('os').homedir()}/.mentis/mcp.json`));
+                break;
+
+            default:
+                console.log(chalk.red(`Unknown MCP action: ${action}`));
+                console.log(chalk.yellow('Available actions: list, connect, disconnect, add, remove, test, config'));
         }
     }
 
@@ -1286,6 +1424,72 @@ export class ReplManager {
     private async handleCommandsValidate(): Promise<void> {
         const { validateCommands } = await import('../commands/CommandCreator');
         await validateCommands(this.commandManager);
+    }
+
+    /**
+     * Handle write_file approval with diff preview
+     */
+    private async handleWriteApproval(filePath: string, content: string): Promise<boolean> {
+        // Check if file exists and show diff
+        const fullPath = path.resolve(filePath);
+        if (fs.existsSync(fullPath)) {
+            const oldContent = fs.readFileSync(fullPath, 'utf-8');
+            DiffViewer.showDiff(filePath, oldContent, content);
+        } else {
+            console.log('');
+            console.log(chalk.cyan(`📄 Creating new file: ${filePath}`));
+            console.log(chalk.dim('─'.repeat(60)));
+            console.log(chalk.green('New file content:'));
+            const preview = content.split('\n').slice(0, 10).join('\n');
+            console.log(chalk.dim(preview));
+            if (content.split('\n').length > 10) {
+                console.log(chalk.dim('...'));
+            }
+            console.log(chalk.dim('─'.repeat(60)));
+        }
+
+        const { confirm } = await inquirer.prompt([
+            {
+                type: 'confirm',
+                name: 'confirm',
+                message: `Allow writing to ${chalk.yellow(filePath)}?`,
+                default: true
+            }
+        ]);
+
+        return confirm;
+    }
+
+    /**
+     * Handle edit_file approval with diff preview
+     */
+    private async handleEditApproval(args: { file_path: string; old_string: string; new_string: string }): Promise<boolean> {
+        // Get diff from EditFileTool (which shows preview)
+        const editTool = this.tools.find(t => t.name === 'edit_file') as any;
+        if (editTool) {
+            const diffResult = await editTool.execute(args);
+            console.log(diffResult);
+        }
+
+        const { confirm } = await inquirer.prompt([
+            {
+                type: 'confirm',
+                name: 'confirm',
+                message: `Apply edit to ${chalk.yellow(args.file_path)}?`,
+                default: true
+            }
+        ]);
+
+        return confirm;
+    }
+
+    /**
+     * Handle read_file approval (currently auto-approves, but can be enhanced)
+     */
+    private async handleReadApproval(filePath: string): Promise<boolean> {
+        // For now, auto-approve single file reads
+        // In the future, could batch multiple reads into a single selector
+        return true;
     }
 
     private estimateCost(input: number, output: number): number {

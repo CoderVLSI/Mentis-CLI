@@ -1,6 +1,9 @@
 import fs from 'fs-extra';
 import path from 'path';
 import { Tool } from './Tool';
+export { EditFileTool } from './EditFileTool';
+export { AskQuestionTool } from './AskQuestionTool';
+export { PlanModeTool } from './PlanModeTool';
 
 export class WriteFileTool implements Tool {
     name = 'write_file';
