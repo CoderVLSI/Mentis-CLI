@@ -36,6 +36,11 @@ import * as path from 'path';
 import * as os from 'os';
 import { marked } from 'marked';
 import TerminalRenderer from 'marked-terminal';
+import { HooksManager } from '../hooks/HooksManager';
+import { SettingsManager } from '../settings/SettingsManager';
+import { PermissionManager } from '../permissions/PermissionManager';
+import { TodoWriteTool, TodoReadTool, clearTodos } from '../tools/TodoTools';
+import { WebFetchTool } from '../tools/WebFetchTool';
 
 const HISTORY_FILE = path.join(os.homedir(), '.mentis_history');
 
@@ -63,6 +68,10 @@ export class ReplManager {
     private shell: PersistentShell;
     private currentModelName: string = 'Unknown';
     private activeSkill: string | null = null;  // Track currently active skill for allowed-tools
+    private settingsManager: SettingsManager;
+    private hooksManager: HooksManager;
+    private permissionManager: PermissionManager;
+    private sessionId: string;
     private options: CliOptions;
 
     constructor(options: CliOptions = { resume: false, yolo: false, headless: false }) {
@@ -76,6 +85,13 @@ export class ReplManager {
         this.commandManager = new CommandManager();
         this.mcpManager = new McpManager();
         this.shell = new PersistentShell();
+        this.sessionId = Date.now().toString(36);
+        this.settingsManager = new SettingsManager();
+        this.hooksManager = new HooksManager(this.settingsManager.getHooks());
+        this.permissionManager = new PermissionManager(
+            this.settingsManager.getPermissions(),
+            options.yolo
+        );
 
         // Create tools array without skill tools first
         this.tools = [
@@ -92,7 +108,10 @@ export class ReplManager {
             new GitCommitTool(),
             new GitPushTool(),
             new GitPullTool(),
-            new PersistentShellTool(this.shell) // /run
+            new PersistentShellTool(this.shell), // /run
+            new TodoWriteTool(),
+            new TodoReadTool(),
+            new WebFetchTool(),
         ];
 
         // Configure Markdown Renderer
@@ -237,6 +256,7 @@ export class ReplManager {
     }
 
     public async start() {
+        await this.hooksManager.run('SessionStart', { sessionId: this.sessionId });
         // Headless mode: non-interactive, process prompt and exit
         if (this.options.headless && this.options.headlessPrompt) {
             await this.handleChat(this.options.headlessPrompt);
@@ -374,6 +394,7 @@ export class ReplManager {
                 break;
             case '/clear':
                 this.history = [];
+                clearTodos();
                 this.contextManager.clear();
                 UIManager.displayLogo(); // Redraw logo on clear
                 console.log(chalk.yellow('Chat history and context cleared.'));
@@ -405,6 +426,7 @@ export class ReplManager {
                 this.shell.kill(); // Kill the shell process
                 this.mcpManager.disconnectAll(); // Disconnect all MCP connections
                 console.log(chalk.green('Session saved to .mentis/sessions/. Goodbye!'));
+                await this.hooksManager.run('Stop', { sessionId: this.sessionId });
                 process.exit(0);
                 break;
             case '/update':
@@ -414,6 +436,7 @@ export class ReplManager {
                 break;
             case '/clear':
                 this.history = [];
+                clearTodos();
                 console.log(chalk.green('\n✓ Context cleared\n'));
                 break;
             case '/init':
@@ -537,8 +560,23 @@ export class ReplManager {
                     // Safety checks for write/edit operations
                     // Skip confirmation if tool is allowed by active skill
                     let approved = true;
-                    const needsApproval = (toolName === 'write_file' || toolName === 'edit_file' || toolName === 'read_file')
-                                        && !this.isToolAllowedBySkill(toolName === 'read_file' ? 'Read' : 'Write');
+
+                    // Check deny first
+                    if (this.permissionManager.isDenied(toolName)) {
+                        this.history.push({
+                            role: 'tool',
+                            tool_call_id: toolCall.id,
+                            name: toolName,
+                            content: `Error: Tool '${toolName}' is denied by permission settings.`,
+                        });
+                        continue;
+                    }
+
+                    // Skill-level allowedTools still takes precedence for approval bypass
+                    const skillAllows = this.isToolAllowedBySkill(
+                        toolName === 'read_file' ? 'Read' : 'Write'
+                    );
+                    const needsApproval = !skillAllows && this.permissionManager.needsApproval(toolName);
 
                     if (needsApproval) {
                         // Pause cancellation listener during user interaction
@@ -582,6 +620,22 @@ export class ReplManager {
                         continue;
                     }
 
+                    // PreToolUse hook — can block execution
+                    const hookAllowed = await this.hooksManager.run('PreToolUse', {
+                        toolName,
+                        toolArgs,
+                        sessionId: this.sessionId,
+                    });
+                    if (!hookAllowed) {
+                        this.history.push({
+                            role: 'tool',
+                            tool_call_id: toolCall.id,
+                            name: toolName,
+                            content: `Error: Tool execution blocked by PreToolUse hook.`,
+                        });
+                        continue;
+                    }
+
                     const tool = this.tools.find(t => t.name === toolName);
                     let result = '';
 
@@ -605,6 +659,13 @@ export class ReplManager {
                     } else {
                         result = `Error: Tool ${toolName} not found.`;
                     }
+
+                    await this.hooksManager.run('PostToolUse', {
+                        toolName,
+                        toolArgs,
+                        toolResult: typeof result === 'string' ? result : JSON.stringify(result),
+                        sessionId: this.sessionId,
+                    });
 
                     this.history.push({
                         role: 'tool',
