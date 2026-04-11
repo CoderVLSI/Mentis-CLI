@@ -41,3 +41,36 @@ import { SettingsManager } from '../settings/SettingsManager';
 import { PermissionManager } from '../permissions/PermissionManager';
 import { TodoWriteTool, TodoReadTool, clearTodos } from '../tools/TodoTools';
 import { WebFetchTool } from '../tools/WebFetchTool';
+
+const HISTORY_FILE = path.join(os.homedir(), '.mentis_history');
+
+export interface CliOptions {
+    resume: boolean;
+    yolo: boolean;
+    headless: boolean;
+    headlessPrompt?: string;
+}
+
+export class ReplManager {
+    private configManager: ConfigManager;
+    private modelClient!: ModelClient;
+    private contextManager: ContextManager;
+    private checkpointManager: CheckpointManager;
+    private skillsManager: SkillsManager;
+    private contextVisualizer: ContextVisualizer;
+    private conversationCompacter: ConversationCompacter;
+    private commandManager: CommandManager;
+    private history: ChatMessage[] = [];
+    private mode: 'PLAN' | 'BUILD' = 'BUILD';
+    private tools: Tool[] = [];
+    private mcpClients: McpClient[] = [];
+    private mcpManager: McpManager;
+    private shell: PersistentShell;
+    private currentModelName: string = 'Unknown';
+    private activeSkill: string | null = null;  // Track currently active skill for allowed-tools
+    private settingsManager: SettingsManager;
+    private hooksManager: HooksManager;
+    private permissionManager: PermissionManager;
+    private sessionId: string;
+    private options: CliOptions;
+
