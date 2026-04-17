@@ -44,6 +44,8 @@ import { WebFetchTool } from '../tools/WebFetchTool';
 import { InstructionsLoader } from '../utils/InstructionsLoader';
 import { AgentManager } from '../agents/AgentManager';
 import { SpawnAgentTool } from '../tools/SpawnAgentTool';
+import { SpawnAgentsParallelTool } from '../tools/SpawnAgentsParallelTool';
+import { AnthropicClient } from '../llm/AnthropicClient';
 
 const HISTORY_FILE = path.join(os.homedir(), '.mentis_history');
 
@@ -131,9 +133,16 @@ export class ReplManager {
         // Default to Ollama if not specified, assuming compatible endpoint
         this.initializeClient();
 
-        // SpawnAgentTool needs modelClient, so it's added after initializeClient()
+        // SpawnAgentTool and SpawnAgentsParallelTool need modelClient — added after initializeClient()
         this.tools.push(
             new SpawnAgentTool(
+                this.agentManager,
+                this.modelClient,
+                () => this.tools
+            )
+        );
+        this.tools.push(
+            new SpawnAgentsParallelTool(
                 this.agentManager,
                 this.modelClient,
                 () => this.tools
@@ -262,6 +271,12 @@ export class ReplManager {
             baseUrl = config.glm?.baseUrl || 'https://api.z.ai/api/coding/paas/v4/';
             apiKey = config.glm?.apiKey || '';
             model = config.glm?.model || 'glm-4.6';
+        } else if (provider === 'anthropic') {
+            apiKey = (config as any).anthropic?.apiKey || process.env.ANTHROPIC_API_KEY || '';
+            model = (config as any).anthropic?.model || 'claude-opus-4-7';
+            this.currentModelName = model;
+            this.modelClient = new AnthropicClient(apiKey, model);
+            return; // AnthropicClient doesn't use baseUrl
         } else { // Default to Ollama
             baseUrl = config.ollama?.baseUrl || 'http://localhost:11434/v1';
             apiKey = 'ollama'; // Ollama typically doesn't use an API key in the same way
