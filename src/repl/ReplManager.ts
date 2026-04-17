@@ -87,6 +87,8 @@ export class ReplManager {
     private projectInstructions: string = '';
     private agentManager: AgentManager;
     private sidekickManager: SidekickManager;
+    private sessionAllowedTools: Set<string> = new Set(); // tools allowed for whole session
+    private sessionDeniedTools: Set<string> = new Set();  // tools denied for whole session
 
     constructor(options: CliOptions = { resume: false, yolo: false, headless: false }) {
         this.options = options;
@@ -650,7 +652,19 @@ export class ReplManager {
                     const skillAllows = this.isToolAllowedBySkill(
                         toolName === 'read_file' ? 'Read' : 'Write'
                     );
-                    const needsApproval = !skillAllows && this.permissionManager.needsApproval(toolName);
+                    const sessionAllowed = this.sessionAllowedTools.has(toolName) || this.sessionAllowedTools.has('*');
+                    const sessionDenied  = this.sessionDeniedTools.has(toolName)  || this.sessionDeniedTools.has('*');
+                    const needsApproval  = !skillAllows && !sessionAllowed && this.permissionManager.needsApproval(toolName);
+
+                    if (sessionDenied) {
+                        this.history.push({
+                            role: 'tool',
+                            tool_call_id: toolCall.id,
+                            name: toolName,
+                            content: `Error: Tool '${toolName}' denied for this session.`,
+                        });
+                        continue;
+                    }
 
                     if (needsApproval) {
                         // Pause cancellation listener during user interaction
@@ -660,19 +674,20 @@ export class ReplManager {
                             process.stdin.pause();
                         }
 
-                        // Handle write_file with diff preview
                         if (toolName === 'write_file') {
                             approved = await this.handleWriteApproval(toolArgs.filePath, toolArgs.content);
-                        }
-
-                        // Handle edit_file with diff preview
-                        if (toolName === 'edit_file') {
+                        } else if (toolName === 'edit_file') {
                             approved = await this.handleEditApproval(toolArgs);
-                        }
-
-                        // Handle read_file with multi-file selector
-                        if (toolName === 'read_file') {
+                        } else if (toolName === 'read_file') {
                             approved = await this.handleReadApproval(toolArgs.filePath);
+                        } else {
+                            // Generic approval for shell, git, etc.
+                            const argSummary = Object.entries(toolArgs)
+                                .map(([k, v]) => `${k}=${String(v).substring(0, 40)}`)
+                                .join(', ');
+                            console.log('');
+                            console.log(chalk.dim(`  Command: ${chalk.cyan(toolName)}(${argSummary})`));
+                            approved = await this.promptApproval(toolName, chalk.yellow(toolName));
                         }
 
                         // Resume cancellation listener
@@ -1727,61 +1742,60 @@ Keep the name short (1-2 words), themed around programming or systems.`;
         await validateCommands(this.commandManager);
     }
 
-    /**
-     * Handle write_file approval with diff preview
-     */
+    /** Unified approval prompt — replaces plain Y/n with actionable choices */
+    private async promptApproval(toolName: string, label: string): Promise<boolean> {
+        const toolLabel = toolName.replace(/_/g, ' ');
+        console.log('');
+        const { choice } = await inquirer.prompt([{
+            type: 'list',
+            name: 'choice',
+            message: chalk.bold(`Allow ${label}?`),
+            prefix: chalk.cyan('?'),
+            choices: [
+                { name: chalk.green('✓ Yes'),                                         value: 'yes' },
+                { name: chalk.green(`✓ Yes, allow all ${toolLabel} this session`),    value: 'yes_type' },
+                { name: chalk.green('✓ Yes, allow everything this session'),          value: 'yes_all' },
+                new inquirer.Separator(),
+                { name: chalk.red('✗ No'),                                            value: 'no' },
+                { name: chalk.red(`✗ No, deny all ${toolLabel} this session`),        value: 'no_type' },
+            ],
+            default: 'yes',
+        }]);
+
+        switch (choice) {
+            case 'yes':      return true;
+            case 'yes_type': this.sessionAllowedTools.add(toolName); return true;
+            case 'yes_all':  this.sessionAllowedTools.add('*');      return true;
+            case 'no':       return false;
+            case 'no_type':  this.sessionDeniedTools.add(toolName);  return false;
+            default:         return false;
+        }
+    }
+
     private async handleWriteApproval(filePath: string, content: string): Promise<boolean> {
-        // Check if file exists and show diff
         const fullPath = path.resolve(filePath);
         if (fs.existsSync(fullPath)) {
             const oldContent = fs.readFileSync(fullPath, 'utf-8');
             DiffViewer.showDiff(filePath, oldContent, content);
         } else {
             console.log('');
-            console.log(chalk.cyan(`📄 Creating new file: ${filePath}`));
-            console.log(chalk.dim('─'.repeat(60)));
-            console.log(chalk.green('New file content:'));
-            const preview = content.split('\n').slice(0, 10).join('\n');
-            console.log(chalk.dim(preview));
-            if (content.split('\n').length > 10) {
-                console.log(chalk.dim('...'));
-            }
-            console.log(chalk.dim('─'.repeat(60)));
+            console.log(chalk.cyan(`  📄 Creating new file: ${chalk.bold(filePath)}`));
+            console.log(chalk.dim('  ' + '─'.repeat(56)));
+            const lines = content.split('\n');
+            lines.slice(0, 8).forEach(l => console.log(chalk.dim('  ' + l)));
+            if (lines.length > 8) console.log(chalk.dim(`  ... (${lines.length - 8} more lines)`));
+            console.log(chalk.dim('  ' + '─'.repeat(56)));
         }
-
-        const { confirm } = await inquirer.prompt([
-            {
-                type: 'confirm',
-                name: 'confirm',
-                message: `Allow writing to ${chalk.yellow(filePath)}?`,
-                default: true
-            }
-        ]);
-
-        return confirm;
+        return this.promptApproval('write_file', `writing to ${chalk.yellow(filePath)}`);
     }
 
-    /**
-     * Handle edit_file approval with diff preview
-     */
     private async handleEditApproval(args: { file_path: string; old_string: string; new_string: string }): Promise<boolean> {
-        // Get diff from EditFileTool (which shows preview)
         const editTool = this.tools.find(t => t.name === 'edit_file') as any;
         if (editTool) {
             const diffResult = await editTool.execute(args);
             console.log(diffResult);
         }
-
-        const { confirm } = await inquirer.prompt([
-            {
-                type: 'confirm',
-                name: 'confirm',
-                message: `Apply edit to ${chalk.yellow(args.file_path)}?`,
-                default: true
-            }
-        ]);
-
-        return confirm;
+        return this.promptApproval('edit_file', `editing ${chalk.yellow(args.file_path)}`);
     }
 
     /**
