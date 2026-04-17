@@ -15,7 +15,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { ModelClient, ChatMessage, ModelResponse, ToolDefinition } from './ModelInterface';
-import { buildSystemPrompt } from './SystemPrompt';
+import { buildSystemPrompt, ToolSummary } from './SystemPrompt';
 
 const CACHE_INTERVAL = 10;
 const REQUEST_TIMEOUT_MS = 120_000;
@@ -26,6 +26,7 @@ async function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 export class AnthropicClient implements ModelClient {
     private client: Anthropic;
     private model: string;
+    private lastTools?: ToolDefinition[];
 
     constructor(apiKey: string, model: string) {
         this.client = new Anthropic({ apiKey });
@@ -37,6 +38,7 @@ export class AnthropicClient implements ModelClient {
         tools?: ToolDefinition[],
         signal?: AbortSignal
     ): Promise<ModelResponse> {
+        this.lastTools = tools;
         const { systemBlocks, anthropicMessages } = this.convertMessages(messages);
 
         const params: Anthropic.MessageCreateParamsNonStreaming = {
@@ -131,7 +133,11 @@ export class AnthropicClient implements ModelClient {
             .map(m => m.content ?? '')
             .filter(Boolean);
 
-        const systemText = buildSystemPrompt(systemParts.join('\n\n') || undefined);
+        const toolSummaries: ToolSummary[] = (this.lastTools ?? []).map(t => ({
+            name: t.function.name,
+            description: t.function.description ?? '',
+        }));
+        const systemText = buildSystemPrompt(systemParts.join('\n\n') || undefined, toolSummaries);
 
         // Always cache the system prompt — it's expensive to re-process
         const systemBlocks: Anthropic.TextBlockParam[] = [

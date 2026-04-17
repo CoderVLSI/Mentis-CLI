@@ -1,6 +1,6 @@
 import axios, { AxiosError } from 'axios';
 import { ModelClient, ChatMessage, ModelResponse, ToolDefinition } from './ModelInterface';
-import { buildSystemPrompt } from './SystemPrompt';
+import { buildSystemPrompt, ToolSummary } from './SystemPrompt';
 
 const REQUEST_TIMEOUT_MS = 120_000; // 2 min hard timeout per request
 const MAX_RETRIES = 3;
@@ -93,7 +93,11 @@ export class OpenAIClient implements ModelClient {
         const systemParts = messages.filter(m => m.role === 'system').map(m => m.content ?? '');
         const conversation = messages.filter(m => m.role !== 'system');
 
-        const systemContent = buildSystemPrompt(systemParts.join('\n\n') || undefined);
+        const toolSummaries: ToolSummary[] = (tools ?? []).map(t => ({
+            name: t.function.name,
+            description: t.function.description ?? '',
+        }));
+        const systemContent = buildSystemPrompt(systemParts.join('\n\n') || undefined, toolSummaries);
 
         const requestBody: any = {
             model: this.model,
