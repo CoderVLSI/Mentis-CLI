@@ -21,6 +21,7 @@ import { GitStatusTool, GitDiffTool, GitCommitTool, GitPushTool, GitPullTool } f
 import { Tool } from '../tools/Tool';
 import { McpClient } from '../mcp/McpClient';
 import { McpManager } from '../mcp/McpManager';
+import { McpRegistry } from '../mcp/McpRegistry';
 
 import { CheckpointManager } from '../checkpoint/CheckpointManager';
 import { SkillsManager } from '../skills/SkillsManager';
@@ -411,7 +412,7 @@ export class ReplManager {
                 console.log('  /build   - Switch to BUILD mode');
                 console.log('  /model   - Interactively select Provider & Model');
                 console.log('  /use <provider> [model] - Quick switch (legacy)');
-                console.log('  /mcp <cmd> - Manage MCP servers');
+                console.log('  /mcp <search|install|list|connect|...> - Manage MCP servers');
                 console.log('  /skills <list|show|create|validate> - Manage Agent Skills');
                 console.log('  /commands <list|create|validate> - Manage Custom Commands');
                 console.log('  /resume  - Resume last session');
@@ -1083,20 +1084,117 @@ export class ReplManager {
 
     private async handleMcpCommand(args: string[]) {
         if (args.length === 0) {
-            console.log(chalk.red('Usage: /mcp <list|connect|disconnect|add|remove|test|config> [args]'));
+            console.log(chalk.red('Usage: /mcp <search|install|list|connect|disconnect|add|remove|test|config> [args]'));
             console.log(chalk.dim('\nExamples:'));
-            console.log(chalk.dim('  /mcp list                    - List all MCP servers'));
-            console.log(chalk.dim('  /mcp connect Exa\\ Search     - Connect to Exa Search'));
-            console.log(chalk.dim('  /mcp disconnect all           - Disconnect all servers'));
+            console.log(chalk.dim('  /mcp search                  - Browse the MCP registry'));
+            console.log(chalk.dim('  /mcp search browser          - Search registry by keyword'));
+            console.log(chalk.dim('  /mcp install chrome-devtools - Install Chrome DevTools MCP'));
+            console.log(chalk.dim('  /mcp list                    - List configured MCP servers'));
+            console.log(chalk.dim('  /mcp connect chrome-devtools - Connect to a server'));
+            console.log(chalk.dim('  /mcp disconnect all          - Disconnect all servers'));
             console.log(chalk.dim('  /mcp add MyServer npx -y @my/mcp-server'));
-            console.log(chalk.dim('  /mcp test Exa\\ Search         - Test connection'));
-            console.log(chalk.dim('  /mcp config                   - Show configuration'));
+            console.log(chalk.dim('  /mcp test chrome-devtools    - Test connection'));
+            console.log(chalk.dim('  /mcp config                  - Show configuration'));
             return;
         }
 
         const action = args[0];
 
         switch (action) {
+            case 'search': {
+                const query = args.slice(1).join(' ');
+                const results = McpRegistry.search(query);
+                if (results.length === 0) {
+                    console.log(chalk.yellow(`No MCPs found for "${query}"`));
+                    break;
+                }
+                if (query) {
+                    console.log(chalk.cyan(`\n  ${results.length} result(s) for "${query}":\n`));
+                    for (const e of results) {
+                        const installed = this.mcpManager.getAvailableServers().some(s => s.name === e.name);
+                        const badge = installed ? chalk.green(' [installed]') : '';
+                        console.log(`  ${chalk.bold(e.slug.padEnd(22))}${badge}`);
+                        console.log(chalk.dim(`    ${e.description.substring(0, 90)}`));
+                        if (e.requiredEnv?.length) {
+                            console.log(chalk.yellow(`    Requires: ${e.requiredEnv.join(', ')}`));
+                        }
+                        console.log('');
+                    }
+                } else {
+                    // Browse by category
+                    console.log(chalk.cyan('\n  MCP Registry\n'));
+                    const byCategory = McpRegistry.byCategory();
+                    for (const [cat, entries] of byCategory) {
+                        console.log(chalk.bold(`  ${McpRegistry.categoryLabel(cat)}`));
+                        for (const e of entries) {
+                            const installed = this.mcpManager.getAvailableServers().some(s => s.name === e.name);
+                            const badge = installed ? chalk.green(' ✓') : '';
+                            const envNote = e.requiredEnv?.length ? chalk.dim(` (needs ${e.requiredEnv[0]})`) : '';
+                            console.log(`    ${chalk.cyan(e.slug.padEnd(22))} ${chalk.dim(e.name)}${badge}${envNote}`);
+                        }
+                        console.log('');
+                    }
+                    console.log(chalk.dim('  Run /mcp install <slug> to add any of the above.'));
+                }
+                break;
+            }
+
+            case 'install': {
+                const slug = args[1];
+                if (!slug) {
+                    console.log(chalk.red('Usage: /mcp install <slug>'));
+                    console.log(chalk.dim('Run /mcp search to browse available MCPs.'));
+                    break;
+                }
+                const entry = McpRegistry.find(slug);
+                if (!entry) {
+                    console.log(chalk.red(`Unknown MCP: "${slug}"`));
+                    console.log(chalk.dim('Run /mcp search to browse available MCPs.'));
+                    break;
+                }
+                // Check if already configured
+                if (this.mcpManager.getAvailableServers().some(s => s.name === entry.name)) {
+                    console.log(chalk.yellow(`${entry.name} is already installed. Use /mcp connect ${entry.slug} to connect.`));
+                    break;
+                }
+                console.log(chalk.cyan(`\n  Installing ${entry.name}...`));
+                console.log(chalk.dim(`  Package : ${entry.package}`));
+                console.log(chalk.dim(`  Command : ${entry.command} ${entry.args.join(' ')}`));
+                // Prompt for required env vars
+                const envVars: Record<string, string> = {};
+                if (entry.requiredEnv?.length) {
+                    console.log(chalk.yellow(`\n  This MCP requires the following environment variables:`));
+                    for (const envKey of entry.requiredEnv) {
+                        const existing = process.env[envKey];
+                        if (existing) {
+                            console.log(chalk.green(`  ✓ ${envKey} already set`));
+                            envVars[envKey] = existing;
+                        } else {
+                            const { value } = await inquirer.prompt([{
+                                type: 'password',
+                                name: 'value',
+                                message: `  ${envKey}:`,
+                                mask: '*',
+                            }]);
+                            if (value) {
+                                envVars[envKey] = value;
+                                process.env[envKey] = value;
+                            }
+                        }
+                    }
+                }
+                await this.mcpManager.addServer(entry.name, entry.command, entry.args, entry.description);
+                if (Object.keys(envVars).length > 0) {
+                    this.mcpManager.getConfig().updateServer(entry.name, { env: envVars });
+                }
+                console.log(chalk.green(`\n  ✓ ${entry.name} installed!`));
+                console.log(chalk.dim(`  Run /mcp connect ${entry.slug} to start using it.`));
+                if (entry.homepage) {
+                    console.log(chalk.dim(`  Docs: ${entry.homepage}`));
+                }
+                break;
+            }
+
             case 'list':
                 await this.mcpManager.listServers();
                 break;
