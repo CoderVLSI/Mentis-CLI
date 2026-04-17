@@ -47,6 +47,8 @@ import { SpawnAgentTool } from '../tools/SpawnAgentTool';
 import { SpawnAgentsParallelTool } from '../tools/SpawnAgentsParallelTool';
 import { SidekickTool } from '../tools/SidekickTool';
 import { AnthropicClient } from '../llm/AnthropicClient';
+import { SidekickManager } from '../sidekick/SidekickManager';
+import { renderBanner, renderCard, renderInteraction } from '../sidekick/SidekickDisplay';
 
 const HISTORY_FILE = path.join(os.homedir(), '.mentis_history');
 
@@ -82,6 +84,7 @@ export class ReplManager {
     private instructionsLoader: InstructionsLoader;
     private projectInstructions: string = '';
     private agentManager: AgentManager;
+    private sidekickManager: SidekickManager;
 
     constructor(options: CliOptions = { resume: false, yolo: false, headless: false }) {
         this.options = options;
@@ -97,6 +100,7 @@ export class ReplManager {
         this.sessionId = Date.now().toString(36);
         this.settingsManager = new SettingsManager();
         this.agentManager = new AgentManager();
+        this.sidekickManager = new SidekickManager();
         this.instructionsLoader = new InstructionsLoader();
         this.projectInstructions = this.instructionsLoader.load();
         this.hooksManager = new HooksManager(this.settingsManager.getHooks());
@@ -298,6 +302,13 @@ export class ReplManager {
 
     public async start() {
         await this.hooksManager.run('SessionStart', { sessionId: this.sessionId });
+
+        // Show sidekick banner unless disabled in settings
+        const sidekickCfg = this.settingsManager.getSidekickSettings();
+        if (sidekickCfg.showOnStart !== false && this.sidekickManager.isHatched()) {
+            renderBanner(this.sidekickManager.get()!);
+        }
+
         if (!this.instructionsLoader.hasInstructions()) {
             console.log(chalk.dim('  Tip: Run /init to create a .mentis.md project instructions file.'));
         }
@@ -391,6 +402,7 @@ export class ReplManager {
                 console.log('  /help    - Show this help message');
                 console.log('  /clear   - Clear chat history');
                 console.log('  /exit    - Exit the application');
+                console.log('  /sidekick [hatch|card|interact|toggle] - Manage your sidekick companion');
                 console.log('  /update  - Check for and install updates');
                 console.log('  /config  - Configure settings');
                 console.log('  /add <file> - Add file to context');
@@ -470,8 +482,12 @@ export class ReplManager {
                 this.shell.kill(); // Kill the shell process
                 this.mcpManager.disconnectAll(); // Disconnect all MCP connections
                 console.log(chalk.green('Session saved to .mentis/sessions/. Goodbye!'));
+                this.sidekickManager.endSession();
                 await this.hooksManager.run('Stop', { sessionId: this.sessionId });
                 process.exit(0);
+                break;
+            case '/sidekick':
+                await this.handleSidekickCommand(args);
                 break;
             case '/update':
                 const UpdateManager = require('../utils/UpdateManager').UpdateManager;
@@ -708,6 +724,8 @@ export class ReplManager {
                     } else {
                         result = `Error: Tool ${toolName} not found.`;
                     }
+
+                    this.sidekickManager.recordToolCall(result.startsWith('Error:'));
 
                     await this.hooksManager.run('PostToolUse', {
                         toolName,
@@ -1460,6 +1478,66 @@ export class ReplManager {
         const initializer = new ProjectInitializer();
         await initializer.run();
         this.projectInstructions = this.instructionsLoader.load();
+    }
+
+    private async handleSidekickCommand(args: string[]): Promise<void> {
+        const sub = args[0] ?? 'card';
+
+        switch (sub) {
+            case 'hatch':
+                if (this.sidekickManager.isHatched()) {
+                    console.log(chalk.yellow('  Your sidekick is already hatched! Use /sidekick card to see it.'));
+                    break;
+                }
+                {
+                    const spinner = ora('Hatching your sidekick...').start();
+                    try {
+                        const prompt = `Generate a fun, nerdy name and one-sentence personality for a coding sidekick companion.
+Reply in JSON: { "name": "...", "personality": "..." }
+Keep the name short (1-2 words), themed around programming or systems.`;
+                        const resp = await this.modelClient.chat([{ role: 'user', content: prompt }], []);
+                        spinner.stop();
+                        let name = 'Glitch';
+                        let personality = 'A quirky little debugger who loves finding edge cases.';
+                        try {
+                            const json = JSON.parse(resp.content.replace(/```json|```/g, '').trim());
+                            name = json.name ?? name;
+                            personality = json.personality ?? personality;
+                        } catch { /* use defaults */ }
+                        const sidekick = this.sidekickManager.hatch(name, personality);
+                        renderBanner(sidekick);
+                        console.log(chalk.cyan(`  "${personality}"`));
+                    } catch (e: any) {
+                        spinner.stop();
+                        console.log(chalk.red(`  Hatch failed: ${e.message}`));
+                    }
+                }
+                break;
+            case 'card':
+                if (!this.sidekickManager.isHatched()) {
+                    console.log(chalk.yellow('  No sidekick yet! Run /sidekick hatch to get one.'));
+                    break;
+                }
+                renderCard(this.sidekickManager.get()!);
+                break;
+            case 'interact':
+                if (!this.sidekickManager.isHatched()) {
+                    console.log(chalk.yellow('  No sidekick yet! Run /sidekick hatch to get one.'));
+                    break;
+                }
+                renderInteraction(this.sidekickManager.get()!);
+                break;
+            case 'toggle': {
+                const cfg = this.settingsManager.getSidekickSettings();
+                const current = cfg.showOnStart !== false;
+                const updated = { ...this.settingsManager.getSettings(), sidekick: { ...cfg, showOnStart: !current } };
+                this.settingsManager.save(updated);
+                console.log(chalk.green(`  Sidekick banner on session start: ${!current ? 'ON' : 'OFF'}`));
+                break;
+            }
+            default:
+                console.log(chalk.dim('  Usage: /sidekick [hatch|card|interact|toggle]'));
+        }
     }
 
     private async handleCommandsCommand(args: string[]) {
