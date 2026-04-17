@@ -53,7 +53,7 @@ export class AnthropicClient implements ModelClient {
         try {
             const response = await this.client.messages.create(params, {
                 signal: signal as RequestInit['signal'],
-                headers: { 'anthropic-beta': 'prompt-caching-2024-07-31' },
+                headers: { 'anthropic-beta': 'prompt-caching-2024-07-31,computer-use-2024-10-22' },
             } as any);
 
             let content = '';

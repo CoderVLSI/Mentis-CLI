@@ -47,6 +47,7 @@ import { AgentManager } from '../agents/AgentManager';
 import { SpawnAgentTool } from '../tools/SpawnAgentTool';
 import { SpawnAgentsParallelTool } from '../tools/SpawnAgentsParallelTool';
 import { SidekickTool } from '../tools/SidekickTool';
+import { ComputerUseTool } from '../tools/ComputerUseTool';
 import { AnthropicClient } from '../llm/AnthropicClient';
 import { SidekickManager } from '../sidekick/SidekickManager';
 import { renderBanner, renderCard, renderInteraction } from '../sidekick/SidekickDisplay';
@@ -120,6 +121,7 @@ export class ReplManager {
             new ListDirTool(),
             new SearchFileTool(), // grep
             new WebSearchTool(),
+            new ComputerUseTool(),
             new GitStatusTool(),
             new GitDiffTool(),
             new GitCommitTool(),

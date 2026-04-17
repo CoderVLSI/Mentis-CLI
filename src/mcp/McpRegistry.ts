@@ -33,6 +33,19 @@ export type McpCategory =
     | 'cloud';
 
 export const MCP_REGISTRY: McpRegistryEntry[] = [
+    // ── Computer Use ─────────────────────────────────────────────────────────
+    {
+        slug: 'computer-use',
+        name: 'Computer Use (MCP)',
+        package: '@anthropic-ai/mcp-server-computer-use',
+        description: 'Anthropic official computer use MCP — screenshot, click, type, key combos. Requires display server.',
+        category: 'browser',
+        command: 'npx',
+        args: ['-y', '@anthropic-ai/mcp-server-computer-use'],
+        homepage: 'https://github.com/anthropics/anthropic-quickstarts',
+        tags: ['computer-use', 'screenshot', 'automation', 'desktop'],
+    },
+
     // ── Browser ──────────────────────────────────────────────────────────────
     {
         slug: 'chrome-devtools',
