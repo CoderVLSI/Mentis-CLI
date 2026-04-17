@@ -1,0 +1,10 @@
+src/
+*.test.ts
+*.spec.ts
+debug_fs.js
+.env
+.mentis/
+tsconfig.json
+jest.config.*
+.github/
+.gitignore
