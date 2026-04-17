@@ -15,9 +15,13 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { ModelClient, ChatMessage, ModelResponse, ToolDefinition } from './ModelInterface';
+import { buildSystemPrompt } from './SystemPrompt';
 
 const CACHE_INTERVAL = 10;
-const BASE_SYSTEM = 'You are Mentis, an expert AI coding assistant. You help users write code, debug issues, and explain concepts. You are concise, accurate, and professional.';
+const REQUEST_TIMEOUT_MS = 120_000;
+const MAX_RETRIES = 3;
+
+async function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
 export class AnthropicClient implements ModelClient {
     private client: Anthropic;
@@ -50,6 +54,25 @@ export class AnthropicClient implements ModelClient {
             }));
         }
 
+        // Hard timeout racing with user cancel
+        const tc = new AbortController();
+        const timer = setTimeout(() => tc.abort(), REQUEST_TIMEOUT_MS);
+        const onUser = () => tc.abort();
+        signal?.addEventListener('abort', onUser);
+
+        try {
+            return await this.createWithRetry(params, tc.signal);
+        } finally {
+            clearTimeout(timer);
+            signal?.removeEventListener('abort', onUser);
+        }
+    }
+
+    private async createWithRetry(
+        params: Anthropic.MessageCreateParamsNonStreaming,
+        signal: AbortSignal,
+        attempt = 0,
+    ): Promise<ModelResponse> {
         try {
             const response = await this.client.messages.create(params, {
                 signal: signal as RequestInit['signal'],
@@ -66,10 +89,7 @@ export class AnthropicClient implements ModelClient {
                     toolCalls.push({
                         id: block.id,
                         type: 'function',
-                        function: {
-                            name: block.name,
-                            arguments: JSON.stringify(block.input),
-                        },
+                        function: { name: block.name, arguments: JSON.stringify(block.input) },
                     });
                 }
             }
@@ -81,16 +101,23 @@ export class AnthropicClient implements ModelClient {
                 usage: {
                     input_tokens: usage.input_tokens ?? 0,
                     output_tokens: usage.output_tokens ?? 0,
-                    // Expose cache stats for display in ContextVisualizer
                     cache_read_input_tokens: usage.cache_read_input_tokens ?? 0,
                     cache_creation_input_tokens: usage.cache_creation_input_tokens ?? 0,
                 } as any,
             };
         } catch (error: any) {
-            if (error.name === 'AbortError' || error.message?.includes('cancel')) {
+            if (signal.aborted || error.name === 'AbortError' || error.message?.includes('cancel')) {
                 throw new Error('Request cancelled by user');
             }
-            throw error;
+            // Retry on rate limits and transient errors
+            const status = error.status ?? error.response?.status;
+            const retryable = status === 429 || status === 529 || status === 503 || status === 502;
+            if (attempt < MAX_RETRIES && retryable) {
+                const delay = Math.min(1000 * 2 ** attempt, 16000);
+                await sleep(delay);
+                return this.createWithRetry(params, signal, attempt + 1);
+            }
+            throw new Error(error.message ?? `Anthropic API error ${status}`);
         }
     }
 
@@ -104,7 +131,7 @@ export class AnthropicClient implements ModelClient {
             .map(m => m.content ?? '')
             .filter(Boolean);
 
-        const systemText = [BASE_SYSTEM, ...systemParts].join('\n\n');
+        const systemText = buildSystemPrompt(systemParts.join('\n\n') || undefined);
 
         // Always cache the system prompt — it's expensive to re-process
         const systemBlocks: Anthropic.TextBlockParam[] = [

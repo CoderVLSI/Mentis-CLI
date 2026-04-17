@@ -620,7 +620,13 @@ export class ReplManager {
 
                     const toolName = toolCall.function.name;
                     const toolArgsStr = toolCall.function.arguments;
-                    const toolArgs = JSON.parse(toolArgsStr);
+                    let toolArgs: any = {};
+                    try {
+                        toolArgs = JSON.parse(toolArgsStr || '{}');
+                    } catch {
+                        // malformed JSON from model — use empty args and continue
+                        toolArgs = {};
+                    }
 
                     // Show tool execution with visual feedback
                     ToolExecutor.showInline(toolName, toolArgs);
@@ -795,10 +801,16 @@ export class ReplManager {
         } catch (error: any) {
             spinner.stop();
             if (error.message === 'Request cancelled by user') {
-                console.log(chalk.yellow('\nRequest cancelled by user.'));
+                console.log(chalk.yellow('\n  Cancelled.'));
+            } else if (error.message?.includes('timed out')) {
+                console.log(chalk.red('\n  Request timed out after 2 minutes. The API may be slow — try again or switch models with /model.'));
+            } else if (error.message?.includes('429') || error.message?.includes('rate limit')) {
+                console.log(chalk.yellow('\n  Rate limited. Retries exhausted — wait a moment and try again.'));
+            } else if (error.message?.includes('401') || error.message?.includes('403') || error.message?.includes('Unauthorized')) {
+                console.log(chalk.red('\n  Authentication error. Check your API key with /config.'));
             } else {
-                spinner.fail('Error getting response from model.');
-                console.error(error.message);
+                console.log(chalk.red(`\n  Error: ${error.message}`));
+                console.log(chalk.dim('  If this keeps happening, try /clear to reset context or /model to switch providers.'));
             }
         } finally {
             if (process.stdin.isTTY) {
