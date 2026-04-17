@@ -42,6 +42,8 @@ import { PermissionManager } from '../permissions/PermissionManager';
 import { TodoWriteTool, TodoReadTool, clearTodos } from '../tools/TodoTools';
 import { WebFetchTool } from '../tools/WebFetchTool';
 import { InstructionsLoader } from '../utils/InstructionsLoader';
+import { AgentManager } from '../agents/AgentManager';
+import { SpawnAgentTool } from '../tools/SpawnAgentTool';
 
 const HISTORY_FILE = path.join(os.homedir(), '.mentis_history');
 
@@ -76,6 +78,7 @@ export class ReplManager {
     private options: CliOptions;
     private instructionsLoader: InstructionsLoader;
     private projectInstructions: string = '';
+    private agentManager: AgentManager;
 
     constructor(options: CliOptions = { resume: false, yolo: false, headless: false }) {
         this.options = options;
@@ -90,6 +93,7 @@ export class ReplManager {
         this.shell = new PersistentShell();
         this.sessionId = Date.now().toString(36);
         this.settingsManager = new SettingsManager();
+        this.agentManager = new AgentManager();
         this.instructionsLoader = new InstructionsLoader();
         this.projectInstructions = this.instructionsLoader.load();
         this.hooksManager = new HooksManager(this.settingsManager.getHooks());
@@ -126,6 +130,15 @@ export class ReplManager {
         });
         // Default to Ollama if not specified, assuming compatible endpoint
         this.initializeClient();
+
+        // SpawnAgentTool needs modelClient, so it's added after initializeClient()
+        this.tools.push(
+            new SpawnAgentTool(
+                this.agentManager,
+                this.modelClient,
+                () => this.tools
+            )
+        );
 
         // Initialize skills system after client is ready
         this.initializeSkills();
