@@ -45,7 +45,7 @@ import { InstructionsLoader } from '../utils/InstructionsLoader';
 import { AgentManager } from '../agents/AgentManager';
 import { SpawnAgentTool } from '../tools/SpawnAgentTool';
 import { SpawnAgentsParallelTool } from '../tools/SpawnAgentsParallelTool';
-import { BuddyTool } from '../tools/BuddyTool';
+import { SidekickTool } from '../tools/SidekickTool';
 import { AnthropicClient } from '../llm/AnthropicClient';
 
 const HISTORY_FILE = path.join(os.homedir(), '.mentis_history');
@@ -150,7 +150,7 @@ export class ReplManager {
             )
         );
         this.tools.push(
-            new BuddyTool(
+            new SidekickTool(
                 this.agentManager,
                 this.modelClient,
                 () => this.tools

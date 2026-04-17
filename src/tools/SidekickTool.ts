@@ -1,8 +1,8 @@
 /**
- * BuddyTool - Second-opinion consultation when the main agent is confused
+ * SidekickTool - Second-opinion consultation when the main agent is confused
  *
  * When the main agent is uncertain about a library, API, error, or approach,
- * it calls this tool with a description of its confusion. The buddy agent:
+ * it calls this tool with a description of its confusion. The sidekick agent:
  *
  *   1. Searches the web for relevant docs, Stack Overflow answers, GitHub issues
  *   2. Reads local code files if the confusion is codebase-specific
@@ -20,16 +20,16 @@ import { AgentManager } from '../agents/AgentManager';
 import { SubAgent } from '../agents/SubAgent';
 import { ModelClient } from '../llm/ModelInterface';
 
-export class BuddyTool implements Tool {
-    name = 'ask_buddy';
+export class SidekickTool implements Tool {
+    name = 'ask_sidekick';
     description = [
-        'Ask a research buddy for help when you are confused or uncertain.',
+        'Ask a research sidekick for help when you are confused or uncertain.',
         'Use this when you are unsure about:',
         '  - How a library, API, or framework works',
         '  - What an error message means',
         '  - The best approach for a problem',
         '  - What a piece of code does',
-        'The buddy will search documentation, Stack Overflow, and your codebase to clarify.',
+        'The sidekick will search documentation, Stack Overflow, and your codebase to clarify.',
         'Do not use this for delegating tasks — use spawn_agent for that.',
     ].join('\n');
 
@@ -70,20 +70,20 @@ export class BuddyTool implements Tool {
     }): Promise<string> {
         const searchType = args.search_type ?? 'both';
 
-        const buddyDef = this.agentManager.getAgent('buddy');
-        if (!buddyDef) {
-            return 'Error: Buddy agent not found. Ensure builtinAgents includes "buddy".';
+        const sidekickDef = this.agentManager.getAgent('sidekick');
+        if (!sidekickDef) {
+            return 'Error: Sidekick agent not found. Ensure builtinAgents includes "sidekick".';
         }
 
-        // Build a focused task for the buddy
+        // Build a focused task for the sidekick
         const task = this.buildTask(args.confused_about, args.context, searchType);
 
-        console.log(chalk.magenta(`  🤔 Consulting buddy: ${args.confused_about.slice(0, 70)}…`));
+        console.log(chalk.magenta(`  🤔 Consulting sidekick: ${args.confused_about.slice(0, 70)}…`));
 
-        const subAgent = new SubAgent(buddyDef, this.modelClient, this.allToolsProvider());
+        const subAgent = new SubAgent(sidekickDef, this.modelClient, this.allToolsProvider());
         const result = await subAgent.run(task);
 
-        console.log(chalk.dim('  💡 Buddy responded'));
+        console.log(chalk.dim('  💡 Sidekick responded'));
         return result;
     }
 

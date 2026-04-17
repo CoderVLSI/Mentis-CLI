@@ -91,11 +91,11 @@ export const BUILTIN_AGENTS: AgentDefinition[] = [
         ].join('\n'),
     },
     {
-        name: 'buddy',
-        description: 'Research and clarification specialist. Searches docs, Stack Overflow, and the codebase to resolve confusion. Use via ask_buddy tool, not spawn_agent.',
+        name: 'sidekick',
+        description: 'Research and clarification specialist. Searches docs, Stack Overflow, and the codebase to resolve confusion. Use via ask_sidekick tool, not spawn_agent.',
         tools: ['web_search', 'web_fetch', 'read_file', 'list_dir', 'search_files'],
         systemPrompt: [
-            'You are a research buddy — a specialist in resolving confusion quickly.',
+            'You are a research sidekick — a specialist in resolving confusion quickly.',
             'You are consulted when the main agent is uncertain about something.',
             '',
             'Your job:',
