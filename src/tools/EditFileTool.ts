@@ -5,11 +5,14 @@ import { fileURLToPath } from 'url';
 
 /**
  * EditFileTool - Performs string replacement in files (like Claude's Edit tool)
- * Returns a unified diff preview instead of writing immediately
+ *
+ * execute() applies the edit AND returns a diff preview. Approval gating is
+ * handled by ReplManager before execute() is called (via handleEditApproval),
+ * so by the time we get here the user has already consented.
  */
 export class EditFileTool implements Tool {
     name = 'edit_file';
-    description = 'Make targeted edits to files using string replacement. Returns diff preview. Requires approval before writing.';
+    description = 'Make targeted edits to files using exact string replacement. Applies the edit and returns a unified diff.';
     parameters = {
         type: 'object',
         properties: {
@@ -34,37 +37,46 @@ export class EditFileTool implements Tool {
     };
 
     /**
-     * Execute the edit and return a diff preview
-     * Note: This does NOT write the file - it returns what WOULD change
-     * The caller (ReplManager) should handle approval before calling applyEdit()
+     * Apply the edit and return a diff preview.
+     * Accepts both snake_case (file_path/old_string/new_string) and camelCase
+     * (filePath/oldString/newString) since different models emit different styles.
      */
-    async execute(args: {
-        file_path: string;
-        old_string: string;
-        new_string: string;
-        auto_format?: boolean;
-    }): Promise<string> {
-        const filePath = resolve(process.cwd(), args.file_path);
+    async execute(args: any): Promise<string> {
+        const file_path  = args.file_path  ?? args.filePath  ?? args.path;
+        const old_string = args.old_string ?? args.oldString ?? args.old ?? args.search;
+        const new_string = args.new_string ?? args.newString ?? args.new ?? args.replace ?? '';
+
+        if (!file_path || old_string == null) {
+            return `Error: edit_file requires file_path, old_string, and new_string.`;
+        }
+
+        const filePath = resolve(process.cwd(), file_path);
 
         if (!existsSync(filePath)) {
-            return `Error: File not found: ${args.file_path}`;
+            return `Error: File not found: ${file_path}`;
         }
 
         const originalContent = readFileSync(filePath, 'utf-8');
 
-        if (!originalContent.includes(args.old_string)) {
-            return `Error: old_string not found in file. The string must match exactly (including whitespace and indentation).`;
+        if (!originalContent.includes(old_string)) {
+            return `Error: old_string not found in ${file_path}. The string must match exactly (including whitespace and indentation).`;
         }
 
-        // Count occurrences
-        const occurrences = (originalContent.match(new RegExp(this.escapeRegex(args.old_string), 'g')) || []).length;
+        const occurrences = (originalContent.match(new RegExp(this.escapeRegex(old_string), 'g')) || []).length;
 
-        if (occurrences > 1) {
-            return `Warning: old_string found ${occurrences} times. All occurrences will be replaced.\n\n${this.generateDiff(originalContent, args.old_string, args.new_string, args.file_path)}`;
+        // Actually write the change (approval already granted upstream)
+        const newContent = originalContent.split(old_string).join(new_string);
+        try {
+            writeFileSync(filePath, newContent, 'utf-8');
+        } catch (e: any) {
+            return `Error writing file: ${e.message}`;
         }
 
-        // Generate and return diff
-        return this.generateDiff(originalContent, args.old_string, args.new_string, args.file_path);
+        const diff = this.generateDiff(originalContent, old_string, new_string, file_path);
+        const header = occurrences > 1
+            ? `✓ Replaced ${occurrences} occurrences in ${file_path}\n`
+            : `✓ Edited ${file_path}\n`;
+        return header + diff;
     }
 
     /**

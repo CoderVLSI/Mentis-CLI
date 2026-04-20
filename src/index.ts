@@ -116,8 +116,29 @@ async function main(): Promise<void> {
     await repl.start();
 }
 
+// Global stdin-state safety net: unexpected errors anywhere in the app can
+// leave the terminal in raw mode with paused stdin, which looks like a freeze.
+// Restore a sane state on any unhandled error before continuing/exiting.
+function restoreStdin() {
+    try {
+        if (process.stdin.isTTY) process.stdin.setRawMode(false);
+        process.stdin.resume();
+    } catch {}
+}
+process.on('uncaughtException', (err) => {
+    restoreStdin();
+    console.error('\nUnexpected error:', err?.message ?? err);
+    console.error('Terminal state restored. You can keep typing.');
+});
+process.on('unhandledRejection', (reason) => {
+    restoreStdin();
+    console.error('\nUnhandled promise rejection:', (reason as any)?.message ?? reason);
+});
+process.on('exit', restoreStdin);
+
 // Start the application
 main().catch((error) => {
+    restoreStdin();
     console.error('Fatal error:', error);
     process.exit(1);
 });

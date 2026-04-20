@@ -49,6 +49,14 @@ export class InputBox {
             console.log(chalk.dim(`  ${hint}`));
         }
 
+        // Defensive: reset stdin to a known-good state before taking input.
+        // Prevents freeze when a previous code path left stdin paused, in raw
+        // mode, or with leaked keypress listeners.
+        if (process.stdin.isTTY) {
+            try { process.stdin.setRawMode(false); } catch {}
+        }
+        try { process.stdin.resume(); } catch {}
+
         return new Promise<string>((resolve) => {
             // Create readline with simple prompt
             const rl = readline.createInterface({

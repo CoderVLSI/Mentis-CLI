@@ -667,34 +667,37 @@ export class ReplManager {
                     }
 
                     if (needsApproval) {
-                        // Pause cancellation listener during user interaction
+                        // Pause cancellation listener during user interaction so
+                        // inquirer can own stdin. Wrap every toggle defensively —
+                        // if inquirer throws, we still restore listeners below.
+                        try { process.stdin.removeListener('keypress', keyListener); } catch {}
                         if (process.stdin.isTTY) {
-                            process.stdin.removeListener('keypress', keyListener);
-                            process.stdin.setRawMode(false);
-                            process.stdin.pause();
+                            try { process.stdin.setRawMode(false); } catch {}
                         }
 
-                        if (toolName === 'write_file') {
-                            approved = await this.handleWriteApproval(toolArgs.filePath, toolArgs.content);
-                        } else if (toolName === 'edit_file') {
-                            approved = await this.handleEditApproval(toolArgs);
-                        } else if (toolName === 'read_file') {
-                            approved = await this.handleReadApproval(toolArgs.filePath);
-                        } else {
-                            // Generic approval for shell, git, etc.
-                            const argSummary = Object.entries(toolArgs)
-                                .map(([k, v]) => `${k}=${String(v).substring(0, 40)}`)
-                                .join(', ');
-                            console.log('');
-                            console.log(chalk.dim(`  Command: ${chalk.cyan(toolName)}(${argSummary})`));
-                            approved = await this.promptApproval(toolName, chalk.yellow(toolName));
-                        }
-
-                        // Resume cancellation listener
-                        if (process.stdin.isTTY) {
-                            process.stdin.setRawMode(true);
-                            process.stdin.resume();
-                            process.stdin.on('keypress', keyListener);
+                        try {
+                            if (toolName === 'write_file') {
+                                approved = await this.handleWriteApproval(toolArgs.filePath, toolArgs.content);
+                            } else if (toolName === 'edit_file') {
+                                approved = await this.handleEditApproval(toolArgs);
+                            } else if (toolName === 'read_file') {
+                                approved = await this.handleReadApproval(toolArgs.filePath);
+                            } else {
+                                // Generic approval for shell, git, etc.
+                                const argSummary = Object.entries(toolArgs)
+                                    .map(([k, v]) => `${k}=${String(v).substring(0, 40)}`)
+                                    .join(', ');
+                                console.log('');
+                                console.log(chalk.dim(`  Command: ${chalk.cyan(toolName)}(${argSummary})`));
+                                approved = await this.promptApproval(toolName, chalk.yellow(toolName));
+                            }
+                        } finally {
+                            // Always restore the cancellation listener, even on error.
+                            if (process.stdin.isTTY) {
+                                try { process.stdin.setRawMode(true); } catch {}
+                            }
+                            try { process.stdin.resume(); } catch {}
+                            try { process.stdin.on('keypress', keyListener); } catch {}
                         }
                     }
 
@@ -828,11 +831,15 @@ export class ReplManager {
                 console.log(chalk.dim('  If this keeps happening, try /clear to reset context or /model to switch providers.'));
             }
         } finally {
+            // Defensive cleanup. Wrap every stdin mutation in try/catch so a
+            // terminal-specific quirk can't leave the CLI in a state where the
+            // next input prompt freezes. Do NOT pause stdin — the next readline
+            // interface in InputBox expects a resumed stream.
+            try { process.stdin.removeListener('keypress', keyListener); } catch {}
             if (process.stdin.isTTY) {
-                process.stdin.removeListener('keypress', keyListener);
-                process.stdin.setRawMode(false);
-                process.stdin.pause(); // Reset flow
+                try { process.stdin.setRawMode(false); } catch {}
             }
+            try { process.stdin.resume(); } catch {}
         }
     }
 
