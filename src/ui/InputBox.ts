@@ -1,126 +1,161 @@
 /**
- * InputBox - Simple clean input with top line only
- * Bottom line appears after submission (cross-platform compatible)
+ * InputBox - Clean input with live slash-command completion dropdown
  */
 
 import readline from 'readline';
 import chalk from 'chalk';
 
 export interface InputBoxOptions {
-    placeholder?: string;
     showHint?: boolean;
     hint?: string;
 }
 
+const COMMANDS: { cmd: string; desc: string }[] = [
+    { cmd: '/help',     desc: 'Show all available commands' },
+    { cmd: '/model',    desc: 'Switch AI provider & model' },
+    { cmd: '/config',   desc: 'Configure API keys & settings' },
+    { cmd: '/clear',    desc: 'Clear chat history & context' },
+    { cmd: '/sidekick', desc: 'Manage your sidekick companion' },
+    { cmd: '/init',     desc: 'Initialize project with .mentis.md' },
+    { cmd: '/plan',     desc: 'Switch to PLAN mode' },
+    { cmd: '/build',    desc: 'Switch to BUILD mode' },
+    { cmd: '/mcp',      desc: 'Manage MCP servers' },
+    { cmd: '/add',      desc: 'Add file to context' },
+    { cmd: '/drop',     desc: 'Remove file from context' },
+    { cmd: '/resume',   desc: 'Resume last session' },
+    { cmd: '/search',   desc: 'Search codebase' },
+    { cmd: '/run',      desc: 'Run shell command' },
+    { cmd: '/commit',   desc: 'Git commit all changes' },
+    { cmd: '/skills',   desc: 'Manage agent skills' },
+    { cmd: '/commands', desc: 'Manage custom slash commands' },
+    { cmd: '/exit',     desc: 'Save session & exit' },
+];
+
 export class InputBox {
     private history: string[] = [];
-    private historySize: number = 1000;
+    private historySize = 1000;
 
     constructor(history: string[] = []) {
         this.history = history;
     }
 
-    /**
-     * Get terminal width
-     */
     private getTerminalWidth(): number {
         return process.stdout.columns || 80;
     }
 
-    /**
-     * Create horizontal line
-     */
     private createLine(): string {
-        const width = this.getTerminalWidth();
-        return chalk.gray('─'.repeat(width));
+        return chalk.gray('─'.repeat(this.getTerminalWidth()));
     }
 
-    /**
-     * Get user input with horizontal lines around it
-     */
     async prompt(options: InputBoxOptions = {}): Promise<string> {
         const { showHint = false, hint } = options;
 
-        // Display top horizontal line
         console.log(this.createLine());
+        if (showHint && hint) console.log(chalk.dim(`  ${hint}`));
 
-        // Display hint if provided
-        if (showHint && hint) {
-            console.log(chalk.dim(`  ${hint}`));
-        }
-
-        // Defensive: reset stdin to a known-good state before taking input.
-        // Prevents freeze when a previous code path left stdin paused, in raw
-        // mode, or with leaked keypress listeners.
-        if (process.stdin.isTTY) {
-            try { process.stdin.setRawMode(false); } catch {}
-        }
+        // Defensive: ensure stdin is in a clean state before readline.
+        if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
         try { process.stdin.resume(); } catch {}
 
         return new Promise<string>((resolve) => {
-            // Create readline with simple prompt
             const rl = readline.createInterface({
                 input: process.stdin,
                 output: process.stdout,
                 prompt: chalk.cyan('> '),
                 history: this.history,
                 historySize: this.historySize,
-                completer: this.completer.bind(this)
+                completer: (line: string) => {
+                    if (!line.startsWith('/')) return [[], line];
+                    const hits = COMMANDS.map(c => c.cmd).filter(c => c.startsWith(line));
+                    return [hits.length ? hits : COMMANDS.map(c => c.cmd), line];
+                },
             });
+
+            // Track current line for live dropdown
+            let currentLine = '';
+            let dropdownLines = 0;
+
+            const clearDropdown = () => {
+                if (dropdownLines > 0) {
+                    // Move cursor up and clear each dropdown line
+                    for (let i = 0; i < dropdownLines; i++) {
+                        process.stdout.write('\x1b[1A\x1b[2K');
+                    }
+                    dropdownLines = 0;
+                }
+            };
+
+            const showDropdown = (line: string) => {
+                if (!line.startsWith('/') || line.length === 0) return;
+                const matches = COMMANDS.filter(c => c.cmd.startsWith(line));
+                if (matches.length === 0 || (matches.length === 1 && matches[0].cmd === line)) return;
+
+                const show = matches.slice(0, 6);
+                // Print dropdown below current line
+                process.stdout.write('\n');
+                for (const { cmd, desc } of show) {
+                    const highlight = chalk.cyan(cmd.substring(0, line.length));
+                    const rest = chalk.white(cmd.substring(line.length));
+                    const descStr = chalk.dim(`  ${desc}`);
+                    process.stdout.write(`  ${highlight}${rest}${descStr}\n`);
+                }
+                dropdownLines = show.length + 1;
+                // Move cursor back up to input line
+                for (let i = 0; i < dropdownLines; i++) {
+                    process.stdout.write('\x1b[1A');
+                }
+                // Move cursor to end of input
+                process.stdout.write(`\r\x1b[${line.length + 3}C`);
+            };
+
+            readline.emitKeypressEvents(process.stdin, rl as any);
+            if (process.stdin.isTTY) { try { process.stdin.setRawMode(true); } catch {} }
+
+            const keypressHandler = (_str: string, key: any) => {
+                if (!key) return;
+                // Let readline handle navigation/edit keys — just track the line
+                setTimeout(() => {
+                    const newLine = (rl as any).line ?? '';
+                    if (newLine !== currentLine) {
+                        clearDropdown();
+                        currentLine = newLine;
+                        showDropdown(currentLine);
+                    }
+                }, 0);
+            };
+
+            process.stdin.on('keypress', keypressHandler);
 
             rl.prompt();
 
             const cleanup = () => {
+                clearDropdown();
+                process.stdin.removeListener('keypress', keypressHandler);
                 rl.close();
                 rl.removeAllListeners();
-                // Explicitly ensure raw mode is off to prevent terminal freeze
-                if (process.stdin.isTTY) {
-                    process.stdin.setRawMode(false);
-                }
+                if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
             };
 
             rl.on('line', (line) => {
-                // Display bottom horizontal line after input
+                clearDropdown();
                 console.log(this.createLine());
                 cleanup();
                 resolve(line);
             });
 
-            // Handle Ctrl+C
             rl.on('SIGINT', () => {
+                clearDropdown();
                 console.log(this.createLine());
                 cleanup();
                 resolve('/exit');
             });
 
-            // Handle stream errors or unexpected close
             rl.on('close', () => {
-                // Should already be cleaned up, but safe to ensure
-                if (process.stdin.isTTY) process.stdin.setRawMode(false);
+                if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
             });
         });
     }
 
-    /**
-     * Tab completer — filters slash commands by prefix.
-     * Tip: type "/" and press Enter to open the interactive picker.
-     */
-    private completer(line: string) {
-        const commands = [
-            '/help', '/model', '/config', '/clear', '/sidekick',
-            '/init', '/plan', '/build', '/mcp', '/add', '/drop',
-            '/resume', '/search', '/run', '/commit', '/skills',
-            '/commands', '/exit',
-        ];
-
-        if (!line.startsWith('/')) return [[], line];
-        const hits = commands.filter(c => c.startsWith(line));
-        return [hits.length ? hits : commands, line];
-    }
-
-    /**
-     * Add input to history
-     */
     addToHistory(input: string): void {
         if (!input || input === this.history[0]) return;
         this.history.unshift(input);
@@ -129,20 +164,10 @@ export class InputBox {
         }
     }
 
-    /**
-     * Get current history
-     */
-    getHistory(): string[] {
-        return this.history;
-    }
+    getHistory(): string[] { return this.history; }
 
-    /**
-     * Display separator and context info before input
-     */
     public displayFrame(contextInfo?: { messageCount: number; contextPercent: number }): void {
         console.log('');
-
-        // Context bar with message count and percentage
         if (contextInfo) {
             const { messageCount, contextPercent } = contextInfo;
             const color = contextPercent < 60 ? chalk.green : contextPercent < 80 ? chalk.yellow : chalk.red;
@@ -151,16 +176,10 @@ export class InputBox {
         }
     }
 
-    /**
-     * Display separator (alias for displayFrame)
-     */
     public displaySeparator(contextInfo?: { messageCount: number; contextPercent: number }): void {
         this.displayFrame(contextInfo);
     }
 
-    /**
-     * Create a visual progress bar
-     */
     private createProgressBar(percentage: number): string {
         const width = 15;
         const filled = Math.round(percentage / 100 * width);

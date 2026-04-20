@@ -102,12 +102,42 @@ function pickLanguageAffinity(rng: SeededRNG): string {
     return rng.pick(langs);
 }
 
+// Name parts for deterministic generation — no LLM needed
+const NAME_PREFIXES = [
+    'Glitch', 'Null', 'Stack', 'Hex', 'Seg', 'Byte', 'Pixel',
+    'Cache', 'Kern', 'Loop', 'Fork', 'Bit', 'Flux', 'Node',
+    'Vex', 'Proc', 'Ref', 'Lint', 'Patch', 'Core',
+];
+const NAME_SUFFIXES = [
+    '', 'y', 'ster', 'zilla', 'bot', 'ling', 'oid', 'ux',
+    '-9', '.exe', 'inator', '-X', 'max',
+];
+const PERSONALITIES: Record<Species, string> = {
+    daemon:    'A mysterious background process who knows all your secrets.',
+    pixel:     'A retro soul who thinks everything was better at 8-bit.',
+    seggy:     'Lives dangerously close to memory boundaries — and loves it.',
+    regex:     'Speaks exclusively in patterns and gets offended by literal strings.',
+    nibble:    'Small but mighty — four bits of pure attitude.',
+    repl:      'Loops forever and likes it that way.',
+    null:      'Philosophically at peace with the absence of value.',
+    hexer:     'Sees everything in hex and judges you for using decimals.',
+    stack:     'Always pushes first, asks questions later.',
+    lambda:    'Stateless, pure, and mildly judgmental about side effects.',
+    goroutine: 'Runs concurrently and refuses to block for anyone.',
+    recursion: 'Calls itself to solve every problem. Every. Single. One.',
+    cache:     'Obsessively remembers things so you don\'t have to.',
+    token:     'Counts every token and gets anxious near the context limit.',
+    mutex:     'Locks first, thinks later — very protective of shared state.',
+    promise:   'Always says they\'ll get back to you. Eventually.',
+    shard:     'Sees every problem as an opportunity to partition.',
+    bit:       'Binary thinker — it\'s either genius or it\'s wrong.',
+};
+
 /**
  * Deterministically generate a sidekick from the current machine identity.
- * Name and personality default to empty strings — they are filled in by
- * SidekickManager on first hatch using the LLM.
+ * Name and personality are now generated locally — no LLM call needed.
  */
-export function generateSidekick(): Omit<Sidekick, 'name' | 'personality'> {
+export function generateSidekick(): Omit<Sidekick, 'name' | 'personality'> & { name: string; personality: string } {
     const seed = fnv32a(`${os.hostname()}::${os.userInfo().username}`);
     const rng = new SeededRNG(seed);
 
@@ -117,10 +147,18 @@ export function generateSidekick(): Omit<Sidekick, 'name' | 'personality'> {
 
     const { stats, peakStat, dumpStat } = generateStats(rng, rarity);
     const languageAffinity = pickLanguageAffinity(rng);
+
+    const prefix = rng.pick(NAME_PREFIXES);
+    const suffix = rng.pick(NAME_SUFFIXES);
+    const name = prefix + suffix;
+    const personality = PERSONALITIES[species];
+
     const now = new Date().toISOString();
 
     return {
         id: seed.toString(16).padStart(8, '0'),
+        name,
+        personality,
         species,
         rarity,
         isShiny,

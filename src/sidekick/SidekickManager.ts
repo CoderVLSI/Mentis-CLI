@@ -65,10 +65,14 @@ export class SidekickManager {
         return this.sidekick !== null;
     }
 
-    /**
-     * Hatch a new sidekick. Name and personality are provided by the caller
-     * (generated via LLM in the /sidekick hatch flow).
-     */
+    /** Hatch instantly — name and personality generated from machine seed, no LLM needed. */
+    hatchInstant(): Sidekick {
+        this.sidekick = generateSidekick();
+        this.save();
+        return this.sidekick;
+    }
+
+    /** Legacy hatch with explicit name/personality (kept for compatibility). */
     hatch(name: string, personality: string): Sidekick {
         const base = generateSidekick();
         this.sidekick = { ...base, name, personality };

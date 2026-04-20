@@ -1681,27 +1681,10 @@ export class ReplManager {
                     break;
                 }
                 {
-                    const spinner = ora('Hatching your sidekick...').start();
-                    try {
-                        const prompt = `Generate a fun, nerdy name and one-sentence personality for a coding sidekick companion.
-Reply in JSON: { "name": "...", "personality": "..." }
-Keep the name short (1-2 words), themed around programming or systems.`;
-                        const resp = await this.modelClient.chat([{ role: 'user', content: prompt }], []);
-                        spinner.stop();
-                        let name = 'Glitch';
-                        let personality = 'A quirky little debugger who loves finding edge cases.';
-                        try {
-                            const json = JSON.parse((resp.content ?? '').replace(/```json|```/g, '').trim());
-                            name = json.name ?? name;
-                            personality = json.personality ?? personality;
-                        } catch { /* use defaults */ }
-                        const sidekick = this.sidekickManager.hatch(name, personality);
-                        renderBanner(sidekick);
-                        console.log(chalk.cyan(`  "${personality}"`));
-                    } catch (e: any) {
-                        spinner.stop();
-                        console.log(chalk.red(`  Hatch failed: ${e.message}`));
-                    }
+                    // Instant — no LLM call, name/personality generated from machine seed
+                    const sidekick = this.sidekickManager.hatchInstant();
+                    renderBanner(sidekick);
+                    console.log(chalk.cyan(`  "${sidekick.personality}"`));
                 }
                 break;
             case 'card':
