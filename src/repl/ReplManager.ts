@@ -732,6 +732,13 @@ export class ReplManager {
                     let result = '';
 
                     if (tool) {
+                        // Some tools (enter_plan_mode, ask_question) call inquirer
+                        // internally. Inquirer cannot read input while stdin is in
+                        // raw mode (the ESC keypress listener). Pause raw mode for
+                        // the duration of every tool execution so they all work.
+                        try { process.stdin.removeListener('keypress', keyListener); } catch {}
+                        if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
+
                         try {
                             result = await tool.execute(toolArgs);
 
@@ -747,6 +754,11 @@ export class ReplManager {
                             }
                         } catch (e: any) {
                             result = `Error: ${e.message}`;
+                        } finally {
+                            // Restore raw mode so ESC still cancels the next API call
+                            if (process.stdin.isTTY) { try { process.stdin.setRawMode(true); } catch {} }
+                            try { process.stdin.resume(); } catch {}
+                            try { process.stdin.on('keypress', keyListener); } catch {}
                         }
                     } else {
                         result = `Error: Tool ${toolName} not found.`;
