@@ -390,12 +390,57 @@ export class ReplManager {
 
             if (!input) continue;
 
+            // Bare "/" → show interactive command picker
+            if (input === '/') {
+                const picked = await this.showCommandPicker();
+                if (picked) await this.handleCommand(picked);
+                continue;
+            }
+
             if (input.startsWith('/')) {
                 await this.handleCommand(input);
                 continue;
             }
 
             await this.handleChat(input);
+        }
+    }
+
+    /** Show an arrow-key searchable command picker when user types bare "/" */
+    private async showCommandPicker(): Promise<string | null> {
+        const commands = [
+            { value: '/help',     name: '/help         Show all available commands' },
+            { value: '/model',    name: '/model        Switch AI provider & model' },
+            { value: '/config',   name: '/config       Configure API keys & settings' },
+            { value: '/clear',    name: '/clear        Clear chat history & context' },
+            { value: '/sidekick', name: '/sidekick     Manage your sidekick companion' },
+            { value: '/init',     name: '/init         Initialize project with .mentis.md' },
+            { value: '/plan',     name: '/plan         Switch to PLAN mode' },
+            { value: '/build',    name: '/build        Switch to BUILD mode' },
+            { value: '/mcp',      name: '/mcp          Manage MCP servers' },
+            { value: '/add',      name: '/add <file>   Add file to context' },
+            { value: '/drop',     name: '/drop <file>  Remove file from context' },
+            { value: '/resume',   name: '/resume       Resume last session' },
+            { value: '/search',   name: '/search       Search codebase' },
+            { value: '/run',      name: '/run <cmd>    Run shell command' },
+            { value: '/commit',   name: '/commit       Git commit all changes' },
+            { value: '/skills',   name: '/skills       Manage agent skills' },
+            { value: '/commands', name: '/commands     Manage custom slash commands' },
+            { value: '/exit',     name: '/exit         Save session & exit' },
+        ];
+
+        try {
+            const { cmd } = await inquirer.prompt([{
+                type: 'list',
+                name: 'cmd',
+                message: 'Select a command',
+                prefix: chalk.cyan('/'),
+                choices: commands,
+                pageSize: 12,
+            }]);
+            return cmd;
+        } catch {
+            return null;
         }
     }
 

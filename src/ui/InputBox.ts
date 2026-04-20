@@ -102,15 +102,18 @@ export class InputBox {
     }
 
     /**
-     * Simple tab completer for commands
+     * Tab completer — filters slash commands by prefix.
+     * Tip: type "/" and press Enter to open the interactive picker.
      */
     private completer(line: string) {
         const commands = [
-            '/help', '/clear', '/exit', '/update', '/config',
-            '/init', '/resume', '/skills', '/commands', '/checkpoint',
-            '/model', '/use', '/mcp', '/search', '/run', '/commit'
+            '/help', '/model', '/config', '/clear', '/sidekick',
+            '/init', '/plan', '/build', '/mcp', '/add', '/drop',
+            '/resume', '/search', '/run', '/commit', '/skills',
+            '/commands', '/exit',
         ];
 
+        if (!line.startsWith('/')) return [[], line];
         const hits = commands.filter(c => c.startsWith(line));
         return [hits.length ? hits : commands, line];
     }
