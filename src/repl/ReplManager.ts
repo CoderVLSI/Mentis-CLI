@@ -1796,13 +1796,15 @@ Keep the name short (1-2 words), themed around programming or systems.`;
         return this.promptApproval('write_file', `writing to ${chalk.yellow(filePath)}`);
     }
 
-    private async handleEditApproval(args: { file_path: string; old_string: string; new_string: string }): Promise<boolean> {
+    private async handleEditApproval(args: any): Promise<boolean> {
         const editTool = this.tools.find(t => t.name === 'edit_file') as any;
-        if (editTool) {
-            const diffResult = await editTool.execute(args);
-            console.log(diffResult);
+        if (editTool && typeof editTool.preview === 'function') {
+            // preview() renders the diff without touching the file; the actual
+            // write happens in execute() after approval.
+            console.log(editTool.preview(args));
         }
-        return this.promptApproval('edit_file', `editing ${chalk.yellow(args.file_path)}`);
+        const filePath = args.file_path ?? args.filePath ?? args.path ?? '(file)';
+        return this.promptApproval('edit_file', `editing ${chalk.yellow(filePath)}`);
     }
 
     /**

@@ -80,34 +80,23 @@ export class EditFileTool implements Tool {
     }
 
     /**
-     * Apply the edit after approval
-     * This should be called after user approves the diff
+     * Render a read-only diff preview without writing. Used by the approval UI.
      */
-    applyEdit(args: {
-        file_path: string;
-        old_string: string;
-        new_string: string;
-    }): { success: boolean; message: string } {
-        const filePath = resolve(process.cwd(), args.file_path);
+    preview(args: any): string {
+        const file_path  = args.file_path  ?? args.filePath  ?? args.path;
+        const old_string = args.old_string ?? args.oldString ?? args.old ?? args.search;
+        const new_string = args.new_string ?? args.newString ?? args.new ?? args.replace ?? '';
 
-        if (!existsSync(filePath)) {
-            return { success: false, message: `File not found: ${args.file_path}` };
-        }
+        if (!file_path || old_string == null) return 'edit_file requires file_path, old_string, new_string.';
+
+        const filePath = resolve(process.cwd(), file_path);
+        if (!existsSync(filePath)) return `File not found: ${file_path}`;
 
         const originalContent = readFileSync(filePath, 'utf-8');
-
-        if (!originalContent.includes(args.old_string)) {
-            return { success: false, message: 'old_string not found in file' };
+        if (!originalContent.includes(old_string)) {
+            return `⚠ old_string not found in ${file_path} — edit would fail.`;
         }
-
-        const newContent = originalContent.replace(args.old_string, args.new_string);
-
-        writeFileSync(filePath, newContent, 'utf-8');
-
-        return {
-            success: true,
-            message: `Successfully edited ${args.file_path}`
-        };
+        return this.generateDiff(originalContent, old_string, new_string, file_path);
     }
 
     /**
