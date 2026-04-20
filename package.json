@@ -63,7 +63,7 @@
     "google-sr": "^6.0.0",
     "gradient-string": "^3.0.0",
     "inquirer": "^13.1.0",
-    "marked": "^17.0.1",
+    "marked": "^15.0.0",
     "marked-terminal": "^7.3.0",
     "ora": "^9.0.0",
     "pdf-parse": "^2.4.5",
