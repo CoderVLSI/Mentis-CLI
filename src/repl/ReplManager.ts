@@ -1691,7 +1691,7 @@ Keep the name short (1-2 words), themed around programming or systems.`;
                         let name = 'Glitch';
                         let personality = 'A quirky little debugger who loves finding edge cases.';
                         try {
-                            const json = JSON.parse(resp.content.replace(/```json|```/g, '').trim());
+                            const json = JSON.parse((resp.content ?? '').replace(/```json|```/g, '').trim());
                             name = json.name ?? name;
                             personality = json.personality ?? personality;
                         } catch { /* use defaults */ }

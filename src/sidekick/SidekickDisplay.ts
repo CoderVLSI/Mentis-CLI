@@ -2,11 +2,11 @@
  * SidekickDisplay - Terminal rendering for your sidekick
  */
 
-import chalk from 'chalk';
+import chalk, { ChalkInstance } from 'chalk';
 import { Sidekick, Rarity, Mood, StatKey } from './SidekickTypes';
 import { getArt } from './SidekickArt';
 
-const RARITY_COLORS: Record<Rarity, chalk.Chalk> = {
+const RARITY_COLORS: Record<Rarity, ChalkInstance> = {
     common:    chalk.white,
     uncommon:  chalk.green,
     rare:      chalk.blue,
@@ -14,7 +14,7 @@ const RARITY_COLORS: Record<Rarity, chalk.Chalk> = {
     legendary: chalk.yellow,
 };
 
-const MOOD_COLORS: Record<Mood, chalk.Chalk> = {
+const MOOD_COLORS: Record<Mood, ChalkInstance> = {
     happy:    chalk.green,
     focused:  chalk.cyan,
     stressed: chalk.red,

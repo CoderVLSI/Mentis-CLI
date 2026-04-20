@@ -1,4 +1,4 @@
-import chalk from 'chalk';
+import chalk, { ChalkInstance } from 'chalk';
 import { Sidekick, Mood } from '../sidekick/SidekickTypes';
 import { getArt } from '../sidekick/SidekickArt';
 
@@ -13,7 +13,7 @@ const MOOD_EMOJI: Record<Mood, string> = {
     hyped:    '🔥',
 };
 
-const MOOD_COLOR: Record<Mood, chalk.Chalk> = {
+const MOOD_COLOR: Record<Mood, ChalkInstance> = {
     happy:    chalk.green,
     focused:  chalk.cyan,
     stressed: chalk.red,
