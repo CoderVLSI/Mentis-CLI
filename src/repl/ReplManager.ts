@@ -308,12 +308,6 @@ export class ReplManager {
     public async start() {
         await this.hooksManager.run('SessionStart', { sessionId: this.sessionId });
 
-        // Show sidekick banner unless disabled in settings
-        const sidekickCfg = this.settingsManager.getSidekickSettings();
-        if (sidekickCfg.showOnStart !== false && this.sidekickManager.isHatched()) {
-            renderBanner(this.sidekickManager.get()!);
-        }
-
         if (!this.instructionsLoader.hasInstructions()) {
             console.log(chalk.dim('  Tip: Run /init to create a .mentis.md project instructions file.'));
         }
@@ -326,8 +320,14 @@ export class ReplManager {
 
         UIManager.renderDashboard({
             model: this.currentModelName,
-            mode: this.mode,
-            cwd: process.cwd()
+            cwd: process.cwd(),
+            sidekick: this.sidekickManager.get(),
+            lastSession: (() => {
+                try {
+                    const cp = this.checkpointManager.load('latest');
+                    return cp ? { timestamp: cp.timestamp, messages: cp.history.length } : null;
+                } catch { return null; }
+            })(),
         });
 
         // Auto-resume if --resume flag is set
