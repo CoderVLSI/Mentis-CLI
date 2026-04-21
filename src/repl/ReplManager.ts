@@ -51,6 +51,7 @@ import { ComputerUseTool } from '../tools/ComputerUseTool';
 import { AnthropicClient } from '../llm/AnthropicClient';
 import { SidekickManager } from '../sidekick/SidekickManager';
 import { renderBanner, renderCard, renderInteraction } from '../sidekick/SidekickDisplay';
+import { MemoryManager } from '../memory/MemoryManager';
 
 const HISTORY_FILE = path.join(os.homedir(), '.mentis_history');
 
@@ -87,6 +88,7 @@ export class ReplManager {
     private projectInstructions: string = '';
     private agentManager: AgentManager;
     private sidekickManager: SidekickManager;
+    private memoryManager: MemoryManager;
     private sessionAllowedTools: Set<string> = new Set(); // tools allowed for whole session
     private sessionDeniedTools: Set<string> = new Set();  // tools denied for whole session
 
@@ -105,6 +107,7 @@ export class ReplManager {
         this.settingsManager = new SettingsManager();
         this.agentManager = new AgentManager();
         this.sidekickManager = new SidekickManager();
+        this.memoryManager = new MemoryManager();
         this.instructionsLoader = new InstructionsLoader();
         this.projectInstructions = this.instructionsLoader.load();
         this.hooksManager = new HooksManager(this.settingsManager.getHooks());
@@ -426,6 +429,7 @@ export class ReplManager {
             { value: '/commit',   name: '/commit       Git commit all changes' },
             { value: '/skills',   name: '/skills       Manage agent skills' },
             { value: '/commands', name: '/commands     Manage custom slash commands' },
+            { value: '/memory',   name: '/memory       View & manage persistent memory' },
             { value: '/exit',     name: '/exit         Save session & exit' },
         ];
 
@@ -524,15 +528,20 @@ export class ReplManager {
             case '/config':
                 await this.handleConfigCommand();
                 break;
+            case '/memory':
+                await this.handleMemoryCommand(args);
+                break;
             case '/exit':
                 // Auto-save on exit (both local and global)
                 const cwd = process.cwd();
                 this.checkpointManager.saveLocalSession(cwd, this.history, this.contextManager.getFiles());
                 this.checkpointManager.save('latest', this.history, this.contextManager.getFiles());
-                this.shell.kill(); // Kill the shell process
-                this.mcpManager.disconnectAll(); // Disconnect all MCP connections
-                console.log(chalk.green('Session saved to .mentis/sessions/. Goodbye!'));
+                this.shell.kill();
+                this.mcpManager.disconnectAll();
                 this.sidekickManager.endSession();
+                // Extract and persist memories from this session in background
+                await this.extractAndSaveMemories();
+                console.log(chalk.green('Session saved. Goodbye!'));
                 await this.hooksManager.run('Stop', { sessionId: this.sessionId });
                 process.exit(0);
                 break;
@@ -616,6 +625,13 @@ export class ReplManager {
         // Inject .mentis.md project instructions (like CLAUDE.md in Claude Code)
         if (this.projectInstructions) {
             fullInput = `${this.projectInstructions}\n\n${fullInput}`;
+        }
+
+        // Inject persistent memory (global preferences + project facts)
+        const memoryBlock = this.memoryManager.buildPromptBlock();
+        if (memoryBlock && this.history.length === 0) {
+            // Only prepend on first message of session to avoid repeating every turn
+            fullInput = `${memoryBlock}\n\n${fullInput}`;
         }
 
         this.history.push({ role: 'user', content: fullInput });
@@ -1854,6 +1870,95 @@ export class ReplManager {
         // For now, auto-approve single file reads
         // In the future, could batch multiple reads into a single selector
         return true;
+    }
+
+    /** Extract facts from the current session and save to memory stores */
+    private async extractAndSaveMemories(): Promise<void> {
+        if (this.history.length < 4) return; // too short to learn from
+
+        // Build a compact summary of the conversation for the LLM
+        const turns = this.history
+            .filter(m => m.role === 'user' || m.role === 'assistant')
+            .slice(-30) // last 30 turns max
+            .map(m => `${m.role.toUpperCase()}: ${(m.content ?? '').substring(0, 300)}`)
+            .join('\n');
+
+        const prompt = MemoryManager.extractionPrompt(turns);
+
+        try {
+            const resp = await this.modelClient.chat(
+                [{ role: 'user', content: prompt }],
+                [],
+            );
+            const raw = (resp.content ?? '').replace(/```json|```/g, '').trim();
+            if (!raw || raw === '[]') return;
+            const facts = JSON.parse(raw);
+            if (Array.isArray(facts) && facts.length > 0) {
+                this.memoryManager.merge(facts);
+                console.log(chalk.dim(`  ✓ Saved ${facts.length} memory update(s) for next session.`));
+            }
+        } catch {
+            // Memory extraction is non-critical — never surface errors to user
+        }
+    }
+
+    /** /memory command handler */
+    private async handleMemoryCommand(args: string[]): Promise<void> {
+        const sub = args[0] ?? 'list';
+
+        if (sub === 'list' || !sub) {
+            const global = this.memoryManager.getGlobal();
+            const project = this.memoryManager.getProject();
+
+            if (global.length === 0 && project.length === 0) {
+                console.log(chalk.dim('\n  No memories yet. They build up as you use Mentis.\n'));
+                return;
+            }
+
+            console.log('');
+            if (global.length > 0) {
+                console.log(chalk.bold.cyan('  Global (your preferences)'));
+                for (const e of global) {
+                    console.log(`  ${chalk.cyan('·')} ${chalk.bold(e.key)}: ${e.value}`);
+                }
+            }
+            if (project.length > 0) {
+                console.log(chalk.bold.cyan('\n  Project (this folder)'));
+                for (const e of project) {
+                    console.log(`  ${chalk.cyan('·')} ${chalk.bold(e.key)}: ${e.value}`);
+                }
+            }
+            console.log(chalk.dim('\n  /memory clear global|project  — wipe a tier'));
+            console.log(chalk.dim('  /memory add global <key> <value>  — add manually\n'));
+            return;
+        }
+
+        if (sub === 'clear') {
+            const scope = args[1] as 'global' | 'project';
+            if (scope !== 'global' && scope !== 'project') {
+                console.log(chalk.red('  Usage: /memory clear global|project'));
+                return;
+            }
+            this.memoryManager.clearScope(scope);
+            console.log(chalk.green(`  ✓ Cleared ${scope} memory.`));
+            return;
+        }
+
+        if (sub === 'add') {
+            const scope = args[1] as 'global' | 'project';
+            const key = args[2];
+            const value = args.slice(3).join(' ');
+            if (!scope || !key || !value) {
+                console.log(chalk.red('  Usage: /memory add global|project <key> <value>'));
+                return;
+            }
+            this.memoryManager.set(key, value, scope);
+            console.log(chalk.green(`  ✓ Saved: ${key} → ${value}`));
+            return;
+        }
+
+        console.log(chalk.red(`  Unknown subcommand: ${sub}`));
+        console.log(chalk.dim('  Usage: /memory [list|clear|add]'));
     }
 
     private estimateCost(input: number, output: number): number {

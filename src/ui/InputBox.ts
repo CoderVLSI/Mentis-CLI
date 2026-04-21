@@ -28,6 +28,7 @@ const COMMANDS: { cmd: string; desc: string }[] = [
     { cmd: '/commit',   desc: 'Git commit all changes' },
     { cmd: '/skills',   desc: 'Manage agent skills' },
     { cmd: '/commands', desc: 'Manage custom slash commands' },
+    { cmd: '/memory',   desc: 'View & manage persistent memory' },
     { cmd: '/exit',     desc: 'Save session & exit' },
 ];
 
