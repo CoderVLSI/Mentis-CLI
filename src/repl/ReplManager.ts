@@ -448,8 +448,12 @@ export class ReplManager {
             return null;
         }
 
-        // Single exact-ish match — auto-select without showing picker
+        // Single match — auto-execute without showing picker
         if (choices.length === 1) return choices[0].value;
+
+        // readline.close() pauses stdin — resume so inquirer can read input
+        try { process.stdin.resume(); } catch {}
+        if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
 
         try {
             const { cmd } = await inquirer.prompt([{
