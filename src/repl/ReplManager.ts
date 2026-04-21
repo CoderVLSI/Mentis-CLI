@@ -398,7 +398,7 @@ export class ReplManager {
             // Get styled input
             const answer = await inputBox.prompt({
                 showHint: this.history.length === 0,
-                hint: 'Type your message or /help for commands'
+                hint: 'Type your message  |  / + Enter → command list  |  /si + Enter → autocomplete'
             });
 
             const input = answer.trim();
