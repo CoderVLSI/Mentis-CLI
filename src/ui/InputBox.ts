@@ -1,5 +1,5 @@
 /**
- * InputBox - Clean input with live slash-command completion dropdown
+ * InputBox - Input with Tab-based slash-command completion
  */
 
 import readline from 'readline';
@@ -10,7 +10,7 @@ export interface InputBoxOptions {
     hint?: string;
 }
 
-const COMMANDS: { cmd: string; desc: string }[] = [
+export const COMMANDS: { cmd: string; desc: string }[] = [
     { cmd: '/help',     desc: 'Show all available commands' },
     { cmd: '/model',    desc: 'Switch AI provider & model' },
     { cmd: '/config',   desc: 'Configure API keys & settings' },
@@ -31,6 +31,16 @@ const COMMANDS: { cmd: string; desc: string }[] = [
     { cmd: '/memory',   desc: 'View & manage persistent memory' },
     { cmd: '/exit',     desc: 'Save session & exit' },
 ];
+
+const CMD_NAMES = COMMANDS.map(c => c.cmd);
+
+function completer(line: string): [string[], string] {
+    if (line.startsWith('/') && !line.includes(' ')) {
+        const hits = CMD_NAMES.filter(c => c.startsWith(line));
+        return [hits, line];
+    }
+    return [[], line];
+}
 
 export class InputBox {
     private history: string[] = [];
@@ -65,6 +75,7 @@ export class InputBox {
                 prompt: chalk.cyan('> '),
                 history: this.history,
                 historySize: this.historySize,
+                completer,
             });
 
             rl.prompt();
