@@ -74,6 +74,7 @@ const ALL_COMMANDS = [
     { value: '/commit',   name: '/commit       Git commit all changes' },
     { value: '/skills',   name: '/skills       Manage agent skills' },
     { value: '/commands', name: '/commands     Manage custom slash commands' },
+    { value: '/status',   name: '/status       Show session status' },
     { value: '/exit',     name: '/exit         Save session & exit' },
 ];
 
@@ -160,10 +161,19 @@ export class ReplManager {
             new WebFetchTool(),
         ];
 
-        // Configure Markdown Renderer
+        // Configure Markdown Renderer with syntax highlighting and terminal width
         marked.setOptions({
             // @ts-ignore
-            renderer: new TerminalRenderer()
+            renderer: new TerminalRenderer({
+                width: process.stdout.columns || 100,
+                reflowText: false,
+                code: chalk.reset,       // let cli-highlight do the coloring per-language
+                codespan: chalk.cyan,
+                strong: chalk.bold,
+                em: chalk.italic,
+                heading: chalk.cyan.bold,
+                firstHeading: chalk.cyan.bold.underline,
+            })
         });
         // Default to Ollama if not specified, assuming compatible endpoint
         this.initializeClient();
@@ -600,9 +610,43 @@ export class ReplManager {
             case '/commands':
                 await this.handleCommandsCommand(args);
                 break;
+            case '/status':
+                this.handleStatusCommand();
+                break;
             default:
                 console.log(chalk.red(`Unknown command: ${command}`));
         }
+    }
+
+    private handleStatusCommand(): void {
+        const usage = this.contextVisualizer.calculateUsage(this.history);
+        const files = this.contextManager.getFiles();
+        const sidekick = this.sidekickManager.get();
+        const w = process.stdout.columns || 80;
+        const bar = '─'.repeat(Math.min(w - 4, 50));
+
+        console.log('');
+        console.log(chalk.cyan(`  ┌${bar}┐`));
+        console.log(chalk.cyan('  │') + chalk.bold('  Session Status') + chalk.cyan(' '.repeat(Math.max(0, bar.length - 14)) + '│'));
+        console.log(chalk.cyan(`  ├${bar}┤`));
+
+        const row = (label: string, value: string) =>
+            console.log(chalk.cyan('  │') + `  ${chalk.dim(label.padEnd(12))} ${value}` + ' '.repeat(Math.max(0, bar.length - 14 - label.length - value.replace(/\x1b\[[0-9;]*m/g, '').length)) + chalk.cyan('│'));
+
+        row('Mode',    this.mode === 'PLAN' ? chalk.magenta('PLAN') : chalk.green('BUILD'));
+        row('Model',   chalk.cyan(this.currentModelName));
+        row('Messages', `${this.history.length} msgs · ${chalk.dim(usage.percentage + '% context used')}`);
+        row('Dir',     chalk.dim(process.cwd()));
+        if (files.length > 0) {
+            row('Files', files.map(f => chalk.yellow(path.basename(f))).join(', '));
+        }
+        if (sidekick) {
+            row('Sidekick', `${sidekick.name} · Lv.${sidekick.level} · ${sidekick.mood}`);
+        }
+        row('Session', chalk.dim(this.sessionId));
+
+        console.log(chalk.cyan(`  └${bar}┘`));
+        console.log('');
     }
 
     private getLoadingMessage(): string {
@@ -1874,13 +1918,21 @@ export class ReplManager {
             const oldContent = fs.readFileSync(fullPath, 'utf-8');
             DiffViewer.showDiff(filePath, oldContent, content);
         } else {
-            console.log('');
-            console.log(chalk.cyan(`  📄 Creating new file: ${chalk.bold(filePath)}`));
-            console.log(chalk.dim('  ' + '─'.repeat(56)));
+            const ext = path.extname(filePath).slice(1);
             const lines = content.split('\n');
-            lines.slice(0, 8).forEach(l => console.log(chalk.dim('  ' + l)));
-            if (lines.length > 8) console.log(chalk.dim(`  ... (${lines.length - 8} more lines)`));
-            console.log(chalk.dim('  ' + '─'.repeat(56)));
+            console.log('');
+            console.log(chalk.cyan(`  📄 New file: ${chalk.bold(filePath)}`));
+            console.log(chalk.dim('  ' + '─'.repeat(58)));
+            try {
+                const { highlight } = require('cli-highlight');
+                const highlighted = highlight(content, { language: ext || 'text', ignoreIllegals: true });
+                highlighted.split('\n').forEach((l: string, i: number) =>
+                    console.log(chalk.dim(`${String(i + 1).padStart(4)} `) + l));
+            } catch {
+                lines.forEach((l, i) => console.log(chalk.dim(`${String(i + 1).padStart(4)} `) + l));
+            }
+            console.log(chalk.dim('  ' + '─'.repeat(58)));
+            console.log(chalk.dim(`  ${lines.length} lines`));
         }
         return this.promptApproval('write_file', `writing to ${chalk.yellow(filePath)}`);
     }
