@@ -65,7 +65,9 @@ export class InputBox {
         console.log(this.createLine());
         if (showHint && hint) console.log(chalk.dim(`  ${hint}`));
 
-        if (process.stdin.isTTY) {
+        // Try interactive (raw-mode) on any TTY, including Windows Terminal.
+        // promptInteractive() falls back internally if setRawMode fails.
+        if (process.stdin.isTTY || (process.stdout as any).isTTY) {
             return this.promptInteractive();
         }
         return this.promptFallback();
