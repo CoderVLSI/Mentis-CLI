@@ -437,7 +437,7 @@ export class ReplManager {
         return ALL_COMMANDS.some(c => c.value === cmd);
     }
 
-    /** Show matching commands inline and return null — user types the full command next */
+    /** Show matching commands as a numbered menu; user picks by number */
     private async showCommandPicker(prefix = ''): Promise<string | null> {
         const choices = prefix
             ? ALL_COMMANDS.filter(c => c.value.startsWith(prefix))
@@ -454,15 +454,31 @@ export class ReplManager {
             return choices[0].value;
         }
 
-        // Multiple matches — print the list, return to prompt so user types full command
+        // Multiple matches — numbered menu
         console.log('');
-        for (const c of choices) {
+        choices.forEach((c, i) => {
+            const num = chalk.yellow(`${i + 1})`);
             const cmd = chalk.cyan(c.value.padEnd(14));
             const desc = chalk.dim(c.name.replace(c.value, '').trim());
-            console.log(`  ${cmd} ${desc}`);
-        }
+            console.log(`  ${num} ${cmd} ${desc}`);
+        });
         console.log('');
-        return null; // user types the full command on next prompt
+
+        return new Promise<string | null>((resolve) => {
+            // Resume stdin after InputBox's readline closed (and paused) it
+            try { process.stdin.resume(); } catch {}
+
+            const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+            rl.question(chalk.cyan(`  Pick (1-${choices.length}) or Enter to cancel: `), (answer) => {
+                rl.close();
+                const n = parseInt(answer.trim(), 10);
+                if (!isNaN(n) && n >= 1 && n <= choices.length) {
+                    resolve(choices[n - 1].value);
+                } else {
+                    resolve(null);
+                }
+            });
+        });
     }
 
     private async handleCommand(input: string) {
