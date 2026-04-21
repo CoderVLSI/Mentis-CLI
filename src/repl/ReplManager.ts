@@ -448,26 +448,41 @@ export class ReplManager {
             return null;
         }
 
-        // Single match — auto-execute without showing picker
-        if (choices.length === 1) return choices[0].value;
-
-        // readline.close() pauses stdin — resume so inquirer can read input
-        try { process.stdin.resume(); } catch {}
-        if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
-
-        try {
-            const { cmd } = await inquirer.prompt([{
-                type: 'list',
-                name: 'cmd',
-                message: prefix ? `Commands matching "${prefix}"` : 'Select a command',
-                prefix: chalk.cyan('/'),
-                choices,
-                pageSize: 12,
-            }]);
-            return cmd;
-        } catch {
-            return null;
+        // Single match — auto-execute immediately, no prompt needed
+        if (choices.length === 1) {
+            console.log(chalk.dim(`  → ${choices[0].value}`));
+            return choices[0].value;
         }
+
+        // Print numbered list and ask for a number — plain readline, no inquirer
+        console.log('');
+        choices.forEach((c, i) => {
+            const num = chalk.cyan(`${i + 1}`);
+            const cmd = chalk.white(c.value.padEnd(14));
+            const desc = chalk.dim(c.name.replace(c.value, '').trim());
+            console.log(`  ${num}  ${cmd} ${desc}`);
+        });
+        console.log('');
+
+        return new Promise<string | null>((resolve) => {
+            try { process.stdin.resume(); } catch {}
+            if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
+
+            const rl = require('readline').createInterface({
+                input: process.stdin,
+                output: process.stdout,
+            });
+
+            rl.question(chalk.cyan('  Pick a number (or Enter to cancel): '), (answer: string) => {
+                rl.close();
+                const n = parseInt(answer.trim(), 10);
+                if (!isNaN(n) && n >= 1 && n <= choices.length) {
+                    resolve(choices[n - 1].value);
+                } else {
+                    resolve(null);
+                }
+            });
+        });
     }
 
     private async handleCommand(input: string) {
