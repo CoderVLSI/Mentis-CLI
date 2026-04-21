@@ -59,29 +59,12 @@ export class InputBox {
         try { process.stdin.resume(); } catch {}
 
         return new Promise<string>((resolve) => {
-            // Completer: on Tab show matching commands with descriptions
-            const completer = (line: string, cb: (err: any, result: any) => void) => {
-                if (!line.startsWith('/')) return cb(null, [[], line]);
-                const matches = COMMANDS.filter(c => c.cmd.startsWith(line));
-                const hits = matches.map(c => c.cmd);
-                // Print descriptions alongside — printed by readline above the prompt
-                if (matches.length > 1) {
-                    process.stdout.write('\n');
-                    for (const { cmd, desc } of matches.slice(0, 8)) {
-                        const hi = chalk.cyan(cmd.padEnd(14));
-                        process.stdout.write(`  ${hi} ${chalk.dim(desc)}\n`);
-                    }
-                }
-                cb(null, [hits.length ? hits : COMMANDS.map(c => c.cmd), line]);
-            };
-
             const rl = readline.createInterface({
                 input: process.stdin,
                 output: process.stdout,
                 prompt: chalk.cyan('> '),
                 history: this.history,
                 historySize: this.historySize,
-                completer,
             });
 
             rl.prompt();

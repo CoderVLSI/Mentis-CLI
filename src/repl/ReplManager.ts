@@ -393,9 +393,9 @@ export class ReplManager {
 
             if (!input) continue;
 
-            // Bare "/" → show interactive command picker
-            if (input === '/') {
-                const picked = await this.showCommandPicker();
+            // "/" alone or partial "/s" → filtered arrow-key picker
+            if (input === '/' || (input.startsWith('/') && !input.includes(' ') && !this.isKnownCommand(input))) {
+                const picked = await this.showCommandPicker(input === '/' ? '' : input);
                 if (picked) await this.handleCommand(picked);
                 continue;
             }
@@ -409,37 +409,55 @@ export class ReplManager {
         }
     }
 
-    /** Show an arrow-key searchable command picker when user types bare "/" */
-    private async showCommandPicker(): Promise<string | null> {
-        const commands = [
-            { value: '/help',     name: '/help         Show all available commands' },
-            { value: '/model',    name: '/model        Switch AI provider & model' },
-            { value: '/config',   name: '/config       Configure API keys & settings' },
-            { value: '/clear',    name: '/clear        Clear chat history & context' },
-            { value: '/sidekick', name: '/sidekick     Manage your sidekick companion' },
-            { value: '/init',     name: '/init         Initialize project with .mentis.md' },
-            { value: '/plan',     name: '/plan         Switch to PLAN mode' },
-            { value: '/build',    name: '/build        Switch to BUILD mode' },
-            { value: '/mcp',      name: '/mcp          Manage MCP servers' },
-            { value: '/add',      name: '/add <file>   Add file to context' },
-            { value: '/drop',     name: '/drop <file>  Remove file from context' },
-            { value: '/resume',   name: '/resume       Resume last session' },
-            { value: '/search',   name: '/search       Search codebase' },
-            { value: '/run',      name: '/run <cmd>    Run shell command' },
-            { value: '/commit',   name: '/commit       Git commit all changes' },
-            { value: '/skills',   name: '/skills       Manage agent skills' },
-            { value: '/commands', name: '/commands     Manage custom slash commands' },
-            { value: '/memory',   name: '/memory       View & manage persistent memory' },
-            { value: '/exit',     name: '/exit         Save session & exit' },
-        ];
+    private static readonly ALL_COMMANDS = [
+        { value: '/help',     name: '/help         Show all available commands' },
+        { value: '/model',    name: '/model        Switch AI provider & model' },
+        { value: '/config',   name: '/config       Configure API keys & settings' },
+        { value: '/clear',    name: '/clear        Clear chat history & context' },
+        { value: '/sidekick', name: '/sidekick     Manage your sidekick companion' },
+        { value: '/memory',   name: '/memory       View & manage persistent memory' },
+        { value: '/init',     name: '/init         Initialize project with .mentis.md' },
+        { value: '/plan',     name: '/plan         Switch to PLAN mode' },
+        { value: '/build',    name: '/build        Switch to BUILD mode' },
+        { value: '/mcp',      name: '/mcp          Manage MCP servers' },
+        { value: '/add',      name: '/add <file>   Add file to context' },
+        { value: '/drop',     name: '/drop <file>  Remove file from context' },
+        { value: '/resume',   name: '/resume       Resume last session' },
+        { value: '/search',   name: '/search       Search codebase' },
+        { value: '/run',      name: '/run <cmd>    Run shell command' },
+        { value: '/commit',   name: '/commit       Git commit all changes' },
+        { value: '/skills',   name: '/skills       Manage agent skills' },
+        { value: '/commands', name: '/commands     Manage custom slash commands' },
+        { value: '/exit',     name: '/exit         Save session & exit' },
+    ];
+
+    /** Returns true if input is a fully-typed known command (with or without args) */
+    private isKnownCommand(input: string): boolean {
+        const cmd = input.split(' ')[0];
+        return ReplManager.ALL_COMMANDS.some(c => c.value === cmd);
+    }
+
+    /** Arrow-key picker — filtered by prefix if provided (e.g. "/s" shows /sidekick, /search, /skills) */
+    private async showCommandPicker(prefix = ''): Promise<string | null> {
+        const choices = prefix
+            ? ReplManager.ALL_COMMANDS.filter(c => c.value.startsWith(prefix))
+            : ReplManager.ALL_COMMANDS;
+
+        if (choices.length === 0) {
+            console.log(chalk.red(`  No commands match "${prefix}"`));
+            return null;
+        }
+
+        // Single exact-ish match — auto-select without showing picker
+        if (choices.length === 1) return choices[0].value;
 
         try {
             const { cmd } = await inquirer.prompt([{
                 type: 'list',
                 name: 'cmd',
-                message: 'Select a command',
+                message: prefix ? `Commands matching "${prefix}"` : 'Select a command',
                 prefix: chalk.cyan('/'),
-                choices: commands,
+                choices,
                 pageSize: 12,
             }]);
             return cmd;
