@@ -80,7 +80,28 @@ export class InputBox {
 
             rl.prompt();
 
+            // Live auto-complete: after each keypress check if the partial /cmd
+            // uniquely matches one command and insert the remaining chars automatically.
+            readline.emitKeypressEvents(process.stdin);
+            let autoCompleting = false;
+            const keypressHandler = () => {
+                if (autoCompleting) return;
+                setImmediate(() => {
+                    const line: string = (rl as any).line ?? '';
+                    if (line.startsWith('/') && !line.includes(' ')) {
+                        const hits = CMD_NAMES.filter(c => c.startsWith(line));
+                        if (hits.length === 1 && hits[0] !== line) {
+                            autoCompleting = true;
+                            rl.write(hits[0].slice(line.length));
+                            autoCompleting = false;
+                        }
+                    }
+                });
+            };
+            process.stdin.on('keypress', keypressHandler);
+
             const cleanup = () => {
+                process.stdin.removeListener('keypress', keypressHandler);
                 rl.close();
                 rl.removeAllListeners();
                 if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
