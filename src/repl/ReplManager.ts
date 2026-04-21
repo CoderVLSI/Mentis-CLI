@@ -55,6 +55,28 @@ import { MemoryManager } from '../memory/MemoryManager';
 
 const HISTORY_FILE = path.join(os.homedir(), '.mentis_history');
 
+const ALL_COMMANDS = [
+    { value: '/help',     name: '/help         Show all available commands' },
+    { value: '/model',    name: '/model        Switch AI provider & model' },
+    { value: '/config',   name: '/config       Configure API keys & settings' },
+    { value: '/clear',    name: '/clear        Clear chat history & context' },
+    { value: '/sidekick', name: '/sidekick     Manage your sidekick companion' },
+    { value: '/memory',   name: '/memory       View & manage persistent memory' },
+    { value: '/init',     name: '/init         Initialize project with .mentis.md' },
+    { value: '/plan',     name: '/plan         Switch to PLAN mode' },
+    { value: '/build',    name: '/build        Switch to BUILD mode' },
+    { value: '/mcp',      name: '/mcp          Manage MCP servers' },
+    { value: '/add',      name: '/add <file>   Add file to context' },
+    { value: '/drop',     name: '/drop <file>  Remove file from context' },
+    { value: '/resume',   name: '/resume       Resume last session' },
+    { value: '/search',   name: '/search       Search codebase' },
+    { value: '/run',      name: '/run <cmd>    Run shell command' },
+    { value: '/commit',   name: '/commit       Git commit all changes' },
+    { value: '/skills',   name: '/skills       Manage agent skills' },
+    { value: '/commands', name: '/commands     Manage custom slash commands' },
+    { value: '/exit',     name: '/exit         Save session & exit' },
+];
+
 export interface CliOptions {
     resume: boolean;
     yolo: boolean;
@@ -409,39 +431,17 @@ export class ReplManager {
         }
     }
 
-    private static readonly ALL_COMMANDS = [
-        { value: '/help',     name: '/help         Show all available commands' },
-        { value: '/model',    name: '/model        Switch AI provider & model' },
-        { value: '/config',   name: '/config       Configure API keys & settings' },
-        { value: '/clear',    name: '/clear        Clear chat history & context' },
-        { value: '/sidekick', name: '/sidekick     Manage your sidekick companion' },
-        { value: '/memory',   name: '/memory       View & manage persistent memory' },
-        { value: '/init',     name: '/init         Initialize project with .mentis.md' },
-        { value: '/plan',     name: '/plan         Switch to PLAN mode' },
-        { value: '/build',    name: '/build        Switch to BUILD mode' },
-        { value: '/mcp',      name: '/mcp          Manage MCP servers' },
-        { value: '/add',      name: '/add <file>   Add file to context' },
-        { value: '/drop',     name: '/drop <file>  Remove file from context' },
-        { value: '/resume',   name: '/resume       Resume last session' },
-        { value: '/search',   name: '/search       Search codebase' },
-        { value: '/run',      name: '/run <cmd>    Run shell command' },
-        { value: '/commit',   name: '/commit       Git commit all changes' },
-        { value: '/skills',   name: '/skills       Manage agent skills' },
-        { value: '/commands', name: '/commands     Manage custom slash commands' },
-        { value: '/exit',     name: '/exit         Save session & exit' },
-    ];
-
-    /** Returns true if input is a fully-typed known command (with or without args) */
+    /** Returns true if input is a fully-typed known command */
     private isKnownCommand(input: string): boolean {
         const cmd = input.split(' ')[0];
-        return ReplManager.ALL_COMMANDS.some(c => c.value === cmd);
+        return ALL_COMMANDS.some(c => c.value === cmd);
     }
 
-    /** Arrow-key picker — filtered by prefix if provided (e.g. "/s" shows /sidekick, /search, /skills) */
+    /** Arrow-key picker — filtered by prefix (e.g. "/s" shows /sidekick /search /skills) */
     private async showCommandPicker(prefix = ''): Promise<string | null> {
         const choices = prefix
-            ? ReplManager.ALL_COMMANDS.filter(c => c.value.startsWith(prefix))
-            : ReplManager.ALL_COMMANDS;
+            ? ALL_COMMANDS.filter(c => c.value.startsWith(prefix))
+            : ALL_COMMANDS;
 
         if (choices.length === 0) {
             console.log(chalk.red(`  No commands match "${prefix}"`));
