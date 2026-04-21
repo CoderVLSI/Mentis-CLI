@@ -437,7 +437,7 @@ export class ReplManager {
         return ALL_COMMANDS.some(c => c.value === cmd);
     }
 
-    /** Arrow-key picker — filtered by prefix (e.g. "/s" shows /sidekick /search /skills) */
+    /** Show matching commands inline and return null — user types the full command next */
     private async showCommandPicker(prefix = ''): Promise<string | null> {
         const choices = prefix
             ? ALL_COMMANDS.filter(c => c.value.startsWith(prefix))
@@ -448,41 +448,21 @@ export class ReplManager {
             return null;
         }
 
-        // Single match — auto-execute immediately, no prompt needed
+        // Single match — auto-execute immediately
         if (choices.length === 1) {
             console.log(chalk.dim(`  → ${choices[0].value}`));
             return choices[0].value;
         }
 
-        // Print numbered list and ask for a number — plain readline, no inquirer
+        // Multiple matches — print the list, return to prompt so user types full command
         console.log('');
-        choices.forEach((c, i) => {
-            const num = chalk.cyan(`${i + 1}`);
-            const cmd = chalk.white(c.value.padEnd(14));
+        for (const c of choices) {
+            const cmd = chalk.cyan(c.value.padEnd(14));
             const desc = chalk.dim(c.name.replace(c.value, '').trim());
-            console.log(`  ${num}  ${cmd} ${desc}`);
-        });
+            console.log(`  ${cmd} ${desc}`);
+        }
         console.log('');
-
-        return new Promise<string | null>((resolve) => {
-            try { process.stdin.resume(); } catch {}
-            if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
-
-            const rl = require('readline').createInterface({
-                input: process.stdin,
-                output: process.stdout,
-            });
-
-            rl.question(chalk.cyan('  Pick a number (or Enter to cancel): '), (answer: string) => {
-                rl.close();
-                const n = parseInt(answer.trim(), 10);
-                if (!isNaN(n) && n >= 1 && n <= choices.length) {
-                    resolve(choices[n - 1].value);
-                } else {
-                    resolve(null);
-                }
-            });
-        });
+        return null; // user types the full command on next prompt
     }
 
     private async handleCommand(input: string) {
