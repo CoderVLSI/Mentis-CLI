@@ -78,7 +78,16 @@ export class InputBox {
             let dropdownLines = 0;
             let selIdx = 0;
 
-            try { process.stdin.setRawMode(true); } catch { return resolve(this.promptFallback() as any); }
+            // Remove any stale keypress listeners (e.g. leftover ESC handler from handleChat)
+            // then put stdin into a known-good state before taking raw mode.
+            process.stdin.removeAllListeners('keypress');
+            if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
+            try { process.stdin.resume(); } catch {}
+
+            try { process.stdin.setRawMode(true); } catch {
+                this.promptFallback().then(resolve);
+                return;
+            }
             readline.emitKeypressEvents(process.stdin);
             process.stdout.write(chalk.cyan('> '));
 
