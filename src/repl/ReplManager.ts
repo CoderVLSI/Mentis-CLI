@@ -63,8 +63,8 @@ const ALL_COMMANDS = [
     { value: '/sidekick', name: '/sidekick     Manage your sidekick companion' },
     { value: '/memory',   name: '/memory       View & manage persistent memory' },
     { value: '/init',     name: '/init         Initialize project with .mentis.md' },
-    { value: '/plan',     name: '/plan         Switch to PLAN mode' },
-    { value: '/build',    name: '/build        Switch to BUILD mode' },
+    { value: '/plan',     name: '/plan [task]  Ask questions → plan → /build to implement' },
+    { value: '/build',   name: '/build        Execute the agreed plan' },
     { value: '/mcp',      name: '/mcp          Manage MCP servers' },
     { value: '/add',      name: '/add <file>   Add file to context' },
     { value: '/drop',     name: '/drop <file>  Remove file from context' },
@@ -518,16 +518,19 @@ export class ReplManager {
                 console.log('  /init    - Initialize project with .mentis.md');
                 break;
             case '/plan':
-                this.mode = 'PLAN';
-                UIManager.logBullet('Entered plan mode', 'magenta');
-                PlanModeUI.showPlanHeader();
-                PlanModeUI.showQAHistory();
+                await this.handlePlanCommand(args);
                 break;
             case '/build':
                 this.mode = 'BUILD';
-                UIManager.logBullet('Entered build mode', 'green');
-                PlanModeUI.showPlanSummary();
-                UIManager.logSystem('Mentis is building the solution...');
+                console.log('');
+                console.log(chalk.green('  ┌─── 🔨 BUILD MODE ───────────────────────────────────┐'));
+                console.log(chalk.green('  │') + chalk.dim('  Implementing the plan now...                       ') + chalk.green('│'));
+                console.log(chalk.green('  └─────────────────────────────────────────────────────┘'));
+                console.log('');
+                // If we have a plan from PLAN mode, execute it immediately
+                if (this.history.length > 0) {
+                    await this.handleChat('Execute the implementation plan we just agreed on. Implement every step fully.');
+                }
                 break;
             case '/model':
                 await this.handleModelCommand(args);
@@ -618,6 +621,27 @@ export class ReplManager {
         }
     }
 
+    private async handlePlanCommand(args: string[]): Promise<void> {
+        this.mode = 'PLAN';
+        PlanModeUI.clearHistory();
+        const task = args.join(' ').trim();
+
+        console.log('');
+        console.log(chalk.magenta('  ┌─── 🎯 PLAN MODE ────────────────────────────────────┐'));
+        console.log(chalk.magenta('  │') + chalk.dim('  Mentis will ask clarifying questions, build a plan, ') + chalk.magenta('│'));
+        console.log(chalk.magenta('  │') + chalk.dim('  then wait for /build to implement it.              ') + chalk.magenta('│'));
+        console.log(chalk.magenta('  └─────────────────────────────────────────────────────┘'));
+        console.log('');
+
+        if (task) {
+            // Start planning immediately with the provided task
+            await this.handleChat(task);
+        } else {
+            console.log(chalk.dim('  Describe your task and Mentis will ask questions + build a plan.'));
+            console.log('');
+        }
+    }
+
     private handleStatusCommand(): void {
         const usage = this.contextVisualizer.calculateUsage(this.history);
         const files = this.contextManager.getFiles();
@@ -678,9 +702,13 @@ export class ReplManager {
 
         let modeInstruction = '';
         if (this.mode === 'PLAN') {
-            modeInstruction = '\n[SYSTEM: You are in PLAN mode. Focus on high-level architecture, requirements analysis, and creating a sturdy plan. Do not write full code implementation yet, just scaffolds or pseudocode if needed.]';
+            modeInstruction = `\n[SYSTEM: You are in PLAN mode. Follow this exact workflow:
+STEP 1 — CLARIFY: Use the ask_question tool to ask the user 2-4 focused clarifying questions (one at a time). Only ask what is genuinely ambiguous and would change the plan. Skip questions with obvious answers.
+STEP 2 — PLAN: After gathering answers, output a numbered implementation plan as a markdown list. Each step should be one concrete, actionable task. Title it "## Implementation Plan".
+STEP 3 — CONFIRM: After presenting the plan, ask the user (via ask_question) "Ready to implement? Type /build to start or let me know changes."
+Do NOT write any code yet — only the plan. Wait for /build before implementing.]`;
         } else {
-            modeInstruction = '\n[SYSTEM: You are in BUILD mode. Focus on implementing working code that solves the user request efficiently.]';
+            modeInstruction = '\n[SYSTEM: You are in BUILD mode. If a plan was agreed in PLAN mode, implement it step by step now — write all the code, create all the files, make it work. Use spawn_agent for isolated sub-tasks (research, code review, tests). After completing all steps, summarise what was built.]';
         }
 
         fullInput = `${input}${modeInstruction}`;
