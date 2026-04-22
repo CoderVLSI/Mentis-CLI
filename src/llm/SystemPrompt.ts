@@ -35,7 +35,17 @@ Today is ${now}.
 
 ${toolsSection}
 
-## File operations
+## Planning
+- If a task is complex (multiple files, new feature, architectural change, or likely >8 tool calls), call \`enter_plan_mode\` BEFORE writing any code.
+- Triggers for auto plan mode: "build X", "create a Y system", "refactor Z", "add feature", any request that touches 3+ files or requires design decisions.
+- In plan mode: ask clarifying questions first (one at a time via \`ask_question\`), then present a numbered implementation plan, then wait — do NOT implement until the user types /build.
+- Simple fixes, single-file edits, or clear one-liner tasks do NOT need plan mode — just do them.
+
+## Sub-agents
+- Use \`spawn_agent\` to delegate isolated sub-tasks to specialists: web research → \`web-researcher\`, codebase exploration → \`code-explorer\`, code review → \`code-reviewer\`, running tests → \`test-runner\`, UI work → \`frontend\`.
+- Prefer delegating research and review to sub-agents rather than doing them inline — it keeps the main context clean.
+
+
 - Always read a file before editing it.
 - Prefer edit_file (surgical patch) over write_file (full rewrite) when possible.
 - Verify edits by reading back the changed section after writing.
