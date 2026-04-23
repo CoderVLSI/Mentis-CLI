@@ -833,13 +833,11 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
                     }
 
                     if (needsApproval) {
-                        // Pause cancellation listener during user interaction so
-                        // inquirer can own stdin. Wrap every toggle defensively —
-                        // if inquirer throws, we still restore listeners below.
+                        // Give stdin to the approval prompt: exit raw mode, flush
+                        // any stale keypress listeners, and resume the stream.
                         try { process.stdin.removeListener('keypress', keyListener); } catch {}
-                        if (process.stdin.isTTY) {
-                            try { process.stdin.setRawMode(false); } catch {}
-                        }
+                        if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
+                        try { process.stdin.resume(); } catch {}
 
                         try {
                             if (toolName === 'write_file') {
@@ -904,6 +902,7 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
                         // the duration of every tool execution so they all work.
                         try { process.stdin.removeListener('keypress', keyListener); } catch {}
                         if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
+                        try { process.stdin.resume(); } catch {}
 
                         try {
                             result = await tool.execute(toolArgs);
@@ -1914,30 +1913,30 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
     private async promptApproval(toolName: string, label: string): Promise<boolean> {
         const toolLabel = toolName.replace(/_/g, ' ');
         console.log('');
-        const { choice } = await inquirer.prompt([{
-            type: 'list',
-            name: 'choice',
-            message: chalk.bold(`Allow ${label}?`),
-            prefix: chalk.cyan('?'),
-            choices: [
-                { name: chalk.green('✓ Yes'),                                         value: 'yes' },
-                { name: chalk.green(`✓ Yes, allow all ${toolLabel} this session`),    value: 'yes_type' },
-                { name: chalk.green('✓ Yes, allow everything this session'),          value: 'yes_all' },
-                new inquirer.Separator(),
-                { name: chalk.red('✗ No'),                                            value: 'no' },
-                { name: chalk.red(`✗ No, deny all ${toolLabel} this session`),        value: 'no_type' },
-            ],
-            default: 'yes',
-        }]);
+        console.log(chalk.cyan(`  Allow ${label}?`));
+        console.log('');
+        console.log(`  ${chalk.yellow('1)')} ${chalk.green('Yes')}`);
+        console.log(`  ${chalk.yellow('2)')} ${chalk.green(`Yes, allow all ${toolLabel} this session`)}`);
+        console.log(`  ${chalk.yellow('3)')} ${chalk.green('Yes, allow everything this session')}`);
+        console.log(`  ${chalk.yellow('4)')} ${chalk.red('No')}`);
+        console.log(`  ${chalk.yellow('5)')} ${chalk.red(`No, deny all ${toolLabel} this session`)}`);
+        console.log('');
 
-        switch (choice) {
-            case 'yes':      return true;
-            case 'yes_type': this.sessionAllowedTools.add(toolName); return true;
-            case 'yes_all':  this.sessionAllowedTools.add('*');      return true;
-            case 'no':       return false;
-            case 'no_type':  this.sessionDeniedTools.add(toolName);  return false;
-            default:         return false;
-        }
+        return new Promise<boolean>((resolve) => {
+            try { process.stdin.resume(); } catch {}
+            const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+            rl.question(chalk.cyan('  Choose (1-5, Enter = Yes): '), (answer) => {
+                rl.close();
+                const n = parseInt(answer.trim() || '1', 10);
+                switch (n) {
+                    case 2: this.sessionAllowedTools.add(toolName); resolve(true);  return;
+                    case 3: this.sessionAllowedTools.add('*');      resolve(true);  return;
+                    case 4:                                          resolve(false); return;
+                    case 5: this.sessionDeniedTools.add(toolName);  resolve(false); return;
+                    default:                                         resolve(true);  return;
+                }
+            });
+        });
     }
 
     private async handleWriteApproval(filePath: string, content: string): Promise<boolean> {
