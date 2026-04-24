@@ -74,18 +74,18 @@ ipcMain.handle('sessions:rename', (_e, id: string, title: string) => { engine.re
 ipcMain.handle('config:get', () => loadConfig())
 
 ipcMain.handle('config:set-model', (_e, model: string) => {
-  const cfg = loadConfig()
-  const provider = (cfg.activeProvider as string) || 'ollama'
-  const providers = (cfg.providers as Record<string, Record<string, string>>) || {}
-  if (!providers[provider]) providers[provider] = {}
-  providers[provider].model = model
-  cfg.providers = providers
+  const cfg      = loadConfig()
+  // Write to ~/.mentisrc CLI format: cfg[provider].model
+  const provider = (cfg.defaultProvider as string) || 'ollama'
+  const p        = (cfg[provider] as Record<string, string>) || {}
+  p.model        = model
+  cfg[provider]  = p
   saveConfig(cfg)
   return { ok: true }
 })
 
 ipcMain.handle('config:set-provider', (_e, provider: string) => {
-  const cfg = loadConfig(); cfg.activeProvider = provider; saveConfig(cfg)
+  const cfg = loadConfig(); cfg.defaultProvider = provider; saveConfig(cfg)
   return { ok: true }
 })
 

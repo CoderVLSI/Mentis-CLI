@@ -53,7 +53,24 @@ import { SidekickManager } from '../sidekick/SidekickManager';
 import { renderBanner, renderCard, renderInteraction } from '../sidekick/SidekickDisplay';
 import { MemoryManager } from '../memory/MemoryManager';
 
-const HISTORY_FILE = path.join(os.homedir(), '.mentis_history');
+const HISTORY_FILE     = path.join(os.homedir(), '.mentis_history');
+const GLOBAL_SESS_DIR  = path.join(os.homedir(), '.mentis', 'sessions');
+const GLOBAL_SESS_IDX  = path.join(os.homedir(), '.mentis', 'sessions.json');
+
+interface GlobalSessionMeta {
+    id: string; title: string; createdAt: number; updatedAt: number; messageCount: number; source?: string;
+}
+
+function loadGlobalIndex(): GlobalSessionMeta[] {
+    try { return JSON.parse(fs.readFileSync(GLOBAL_SESS_IDX, 'utf-8')); } catch { return []; }
+}
+
+function saveGlobalIndex(index: GlobalSessionMeta[]): void {
+    try {
+        if (!fs.existsSync(path.dirname(GLOBAL_SESS_IDX))) fs.mkdirSync(path.dirname(GLOBAL_SESS_IDX), { recursive: true });
+        fs.writeFileSync(GLOBAL_SESS_IDX, JSON.stringify(index, null, 2));
+    } catch {}
+}
 
 const ALL_COMMANDS = [
     { value: '/help',     name: '/help         Show all available commands' },
@@ -438,6 +455,7 @@ export class ReplManager {
             }
 
             await this.handleChat(input);
+            this.syncGlobalSession();
         }
     }
 
@@ -582,6 +600,7 @@ export class ReplManager {
                 const cwd = process.cwd();
                 this.checkpointManager.saveLocalSession(cwd, this.history, this.contextManager.getFiles());
                 this.checkpointManager.save('latest', this.history, this.contextManager.getFiles());
+                this.syncGlobalSession();
                 this.shell.kill();
                 this.mcpManager.disconnectAll();
                 this.sidekickManager.endSession();
@@ -692,6 +711,25 @@ export class ReplManager {
             "Hyperspacing..."
         ];
         return messages[Math.floor(Math.random() * messages.length)];
+    }
+
+    private syncGlobalSession(): void {
+        try {
+            if (!fs.existsSync(GLOBAL_SESS_DIR)) fs.mkdirSync(GLOBAL_SESS_DIR, { recursive: true });
+            const index = loadGlobalIndex();
+            const existing = index.find(s => s.id === this.sessionId);
+            const firstUser = this.history.find(m => m.role === 'user');
+            const title = (firstUser?.content as string || 'CLI session').slice(0, 60);
+            if (existing) {
+                existing.updatedAt    = Date.now();
+                existing.messageCount = this.history.length;
+                if (existing.title === 'CLI session' && firstUser) existing.title = title;
+            } else {
+                index.unshift({ id: this.sessionId, title, createdAt: Date.now(), updatedAt: Date.now(), messageCount: this.history.length, source: 'cli' });
+            }
+            saveGlobalIndex(index);
+            fs.writeFileSync(path.join(GLOBAL_SESS_DIR, `${this.sessionId}.json`), JSON.stringify(this.history, null, 2));
+        } catch {}
     }
 
     private async handleChat(input: string) {

@@ -47,19 +47,21 @@ export type EngineEventName = keyof EngineEvent
 
 // ── Paths ─────────────────────────────────────────────────────────────────────
 
-const CONFIG_PATH      = path.join(os.homedir(), '.mentis', 'config.json')
+// Shared with CLI — single source of truth
+const CONFIG_PATH      = path.join(os.homedir(), '.mentisrc')
+const MENTIS_MD_PATH   = path.join(os.homedir(), '.mentis', 'MENTIS.md')
 const LEGACY_HIST      = path.join(os.homedir(), '.mentis', 'desktop-history.json')
 const SESSIONS_INDEX   = path.join(os.homedir(), '.mentis', 'sessions.json')
 const SESSIONS_DIR     = path.join(os.homedir(), '.mentis', 'sessions')
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
+// Reads ~/.mentisrc — same format the CLI uses
 export function loadConfig(): Record<string, unknown> {
   try { return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8')) } catch { return {} }
 }
 
 export function saveConfig(cfg: Record<string, unknown>): void {
-  fs.ensureDirSync(path.dirname(CONFIG_PATH))
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2))
 }
 
@@ -208,7 +210,7 @@ export class HeadlessEngine extends EventEmitter {
   getCwd()      { return this.cwd }
   setCwd(p: string)              { this.cwd = p }
   setMode(m: 'PLAN' | 'BUILD')  { this.mode = m }
-  getActiveProvider()            { return (loadConfig().activeProvider as string) || 'ollama' }
+  getActiveProvider()            { return (loadConfig().defaultProvider as string) || 'ollama' }
 
   clearHistory() {
     this.history = []
@@ -229,14 +231,16 @@ export class HeadlessEngine extends EventEmitter {
 
   private getApiConfig() {
     const cfg = loadConfig()
-    const provider = (cfg.activeProvider as string) || 'ollama'
-    const providers = (cfg.providers as Record<string, Record<string, string>>) || {}
-    const p = providers[provider] || {}
+    // CLI uses defaultProvider + flat provider keys: cfg.ollama.model, cfg.anthropic.apiKey, etc.
+    const provider = (cfg.defaultProvider as string) || 'ollama'
+    const p = (cfg[provider] as Record<string, string>) || {}
     if (provider === 'anthropic') {
-      return { url: 'https://api.anthropic.com/v1/messages', key: p.apiKey || '', type: 'anthropic', model: p.model || 'claude-sonnet-4-6', provider }
+      return { url: 'https://api.anthropic.com/v1/messages', key: p.apiKey || process.env.ANTHROPIC_API_KEY || '', type: 'anthropic', model: p.model || 'claude-sonnet-4-6', provider }
     }
-    const base = (p.baseUrl || 'http://localhost:11434').replace(/\/$/, '')
-    return { url: `${base}/v1/chat/completions`, key: p.apiKey || 'ollama', type: 'openai', model: p.model || 'llama3', provider }
+    // CLI stores baseUrl with /v1 suffix; normalise either way
+    const rawBase = (p.baseUrl || 'http://localhost:11434/v1').replace(/\/$/, '')
+    const base    = rawBase.endsWith('/v1') || rawBase.endsWith('/api') ? rawBase : `${rawBase}/v1`
+    return { url: `${base}/chat/completions`, key: p.apiKey || 'ollama', type: 'openai', model: p.model || 'llama3', provider }
   }
 
   // ── Chat ──────────────────────────────────────────────────────────────────
@@ -259,7 +263,10 @@ export class HeadlessEngine extends EventEmitter {
     this.emit('message_start', { role: 'assistant' })
     this.emit('thinking', { text: 'Thinking...' })
 
-    const systemPrompt = `You are Mentis, an expert AI coding assistant. Mode: ${this.mode}. Working directory: ${this.cwd}. Be concise and thorough. Use tools to complete tasks.`
+    let globalInstructions = ''
+    try { if (fs.existsSync(MENTIS_MD_PATH)) globalInstructions = `\n\n# User Instructions\n${fs.readFileSync(MENTIS_MD_PATH, 'utf-8')}` } catch {}
+
+    const systemPrompt = `You are Mentis, an expert AI coding assistant. Mode: ${this.mode}. Working directory: ${this.cwd}. Be concise and thorough. Use tools to complete tasks.${globalInstructions}`
 
     try {
       let keepGoing = true

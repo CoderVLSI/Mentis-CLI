@@ -27,10 +27,11 @@ export default function App() {
     window.mentis.listSessions().then(setSessions)
     window.mentis.getHistory().then(loadFeedFromHistory)
     window.mentis.getConfig().then((cfg) => {
-      const provider = (cfg.activeProvider as string) || 'ollama'
-      const providers = (cfg.providers as Record<string, Record<string, string>>) || {}
+      // ~/.mentisrc CLI format: defaultProvider + flat keys cfg[provider].model
+      const provider = (cfg.defaultProvider as string) || 'ollama'
+      const p        = (cfg[provider] as Record<string, string>) || {}
       setProviderState(provider)
-      setModelState(providers[provider]?.model || (provider === 'anthropic' ? 'claude-sonnet-4-6' : 'llama3'))
+      setModelState(p.model || (provider === 'anthropic' ? 'claude-sonnet-4-6' : 'llama3'))
     })
   }, [])
 
@@ -171,9 +172,9 @@ export default function App() {
 
   const changeProvider = useCallback(async (p: string) => {
     setProviderState(p); await window.mentis.setProvider(p)
-    const cfg = await window.mentis.getConfig()
-    const providers = (cfg.providers as Record<string, Record<string, string>>) || {}
-    setModelState(providers[p]?.model || (p === 'anthropic' ? 'claude-sonnet-4-6' : 'llama3'))
+    const cfg   = await window.mentis.getConfig()
+    const pCfg  = (cfg[p] as Record<string, string>) || {}
+    setModelState(pCfg.model || (p === 'anthropic' ? 'claude-sonnet-4-6' : 'llama3'))
   }, [])
 
   return (
