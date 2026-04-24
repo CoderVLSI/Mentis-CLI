@@ -22,6 +22,9 @@ contextBridge.exposeInMainWorld('mentis', {
   maximize:    () => ipcRenderer.invoke('window:maximize'),
   close:       () => ipcRenderer.invoke('window:close'),
 
+  // Platform
+  platform: process.platform,
+
   // Engine event subscriptions
   on: (channel: string, fn: (...args: unknown[]) => void) => {
     const listener = (_e: Electron.IpcRendererEvent, ...args: unknown[]) => fn(...args)

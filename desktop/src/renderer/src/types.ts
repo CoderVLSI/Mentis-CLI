@@ -51,6 +51,7 @@ declare global {
       minimize:        () => void
       maximize:        () => void
       close:           () => void
+      platform:        string
       on:              (channel: string, fn: (...args: unknown[]) => void) => () => void
     }
   }
