@@ -14,7 +14,6 @@ export default defineConfig({
     resolve: {
       alias: { '@renderer': resolve('src/renderer/src') }
     },
-    plugins: [react()],
-    css: { postcss: { plugins: [require('tailwindcss'), require('autoprefixer')] } }
+    plugins: [react()]
   }
 })
