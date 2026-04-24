@@ -23,9 +23,13 @@ contextBridge.exposeInMainWorld('mentis', {
   renameSession:  (id: string, title: string)      => ipcRenderer.invoke('sessions:rename', id, title),
 
   // Config
-  getConfig:       ()                      => ipcRenderer.invoke('config:get'),
-  setModel:        (model: string)         => ipcRenderer.invoke('config:set-model', model),
-  setProvider:     (provider: string)      => ipcRenderer.invoke('config:set-provider', provider),
+  getConfig:   ()                  => ipcRenderer.invoke('config:get'),
+  setModel:    (model: string)     => ipcRenderer.invoke('config:set-model', model),
+  setProvider: (provider: string)  => ipcRenderer.invoke('config:set-provider', provider),
+
+  // MCP + Hooks
+  listMcp:   () => ipcRenderer.invoke('mcp:list'),
+  listHooks: () => ipcRenderer.invoke('hooks:list'),
 
   // Window
   pickFolder: () => ipcRenderer.invoke('window:pick-folder'),

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { ChatMessage, FeedItem, SessionInfo, SessionMeta, ToolEvent, ToolSummaryMessage } from './types'
 import Sidebar from './components/Sidebar'
 import ChatPane from './components/ChatPane'
+import ChatHeader from './components/ChatHeader'
 import InputBar from './components/InputBar'
 import TitleBar from './components/TitleBar'
 
@@ -170,6 +171,36 @@ export default function App() {
     setModelState(m); await window.mentis.setModel(m)
   }, [])
 
+  const currentSessionTitle = sessions.find(s => s.id === session.sessionId)?.title || 'New chat'
+
+  const renameSession = useCallback(async (title: string) => {
+    if (!session.sessionId) return
+    await window.mentis.renameSession(session.sessionId, title)
+  }, [session.sessionId])
+
+  const exportChat = useCallback(() => {
+    const lines: string[] = [`# ${currentSessionTitle}\n`]
+    for (const item of feed) {
+      if ((item as ToolSummaryMessage).type === 'tool_summary') continue
+      const msg = item as ChatMessage
+      lines.push(msg.role === 'user' ? `**You:** ${msg.content}` : `**Mentis:** ${msg.content}`)
+      lines.push('')
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `${currentSessionTitle.replace(/[^a-z0-9]/gi, '-').toLowerCase()}.md`
+    a.click()
+  }, [feed, currentSessionTitle])
+
+  const forkSession = useCallback(async () => {
+    const res = await window.mentis.newSession()
+    if (!res.ok) return
+    // Copy current feed messages into display; history already in engine after fork
+    setTools(new Map())
+    const s = await window.mentis.getSession(); setSession(s)
+  }, [])
+
   const changeProvider = useCallback(async (p: string) => {
     setProviderState(p); await window.mentis.setProvider(p)
     const cfg   = await window.mentis.getConfig()
@@ -192,6 +223,14 @@ export default function App() {
           onClear={clearChat}
         />
         <div className="flex flex-col flex-1 overflow-hidden">
+          <ChatHeader
+            session={session}
+            sessionTitle={currentSessionTitle}
+            onRename={renameSession}
+            onExport={exportChat}
+            onFork={forkSession}
+            onClear={clearChat}
+          />
           <ChatPane feed={feed} tools={tools} thinking={thinking} streaming={streaming} onApprove={approve} />
           <InputBar
             disabled={streaming || thinking}

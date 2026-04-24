@@ -2,6 +2,12 @@ import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { HeadlessEngine, loadConfig, saveConfig } from './engine'
+import os from 'os'
+import fs from 'fs-extra'
+import path from 'path'
+
+const MCP_PATH      = path.join(os.homedir(), '.mentis', 'mcp.json')
+const SETTINGS_PATH = path.join(os.homedir(), '.mentis', 'settings.json')
 
 let mainWindow: BrowserWindow | null = null
 const engine = new HeadlessEngine()
@@ -87,6 +93,18 @@ ipcMain.handle('config:set-model', (_e, model: string) => {
 ipcMain.handle('config:set-provider', (_e, provider: string) => {
   const cfg = loadConfig(); cfg.defaultProvider = provider; saveConfig(cfg)
   return { ok: true }
+})
+
+// ── MCP + Hooks ───────────────────────────────────────────────────────────────
+ipcMain.handle('mcp:list', () => {
+  try { return JSON.parse(fs.readFileSync(MCP_PATH, 'utf-8')) } catch { return [] }
+})
+
+ipcMain.handle('hooks:list', () => {
+  try {
+    const s = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8'))
+    return s.hooks || {}
+  } catch { return {} }
 })
 
 // ── Window ────────────────────────────────────────────────────────────────────

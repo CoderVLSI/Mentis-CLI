@@ -43,6 +43,19 @@ export interface SessionMeta {
   messageCount: number
 }
 
+export interface McpServer {
+  name: string
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  autoConnect?: boolean
+}
+
+export interface HookEntry {
+  command: string
+  blocking?: boolean
+}
+
 declare global {
   interface Window {
     mentis: {
@@ -69,8 +82,12 @@ declare global {
 
       // Config
       getConfig:   () => Promise<Record<string, unknown>>
-      setModel:    (model: string)   => Promise<{ ok: boolean }>
+      setModel:    (model: string)    => Promise<{ ok: boolean }>
       setProvider: (provider: string) => Promise<{ ok: boolean }>
+
+      // MCP + Hooks
+      listMcp:   () => Promise<McpServer[]>
+      listHooks: () => Promise<Record<string, HookEntry[]>>
 
       // Window
       pickFolder: () => Promise<string | null>
