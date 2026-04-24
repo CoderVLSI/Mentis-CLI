@@ -5,6 +5,7 @@ import { HeadlessEngine, loadConfig, saveConfig } from './engine'
 import os from 'os'
 import fs from 'fs-extra'
 import path from 'path'
+import axios from 'axios'
 
 const MCP_PATH      = path.join(os.homedir(), '.mentis', 'mcp.json')
 const SETTINGS_PATH = path.join(os.homedir(), '.mentis', 'settings.json')
@@ -93,6 +94,36 @@ ipcMain.handle('config:set-model', (_e, model: string) => {
 ipcMain.handle('config:set-provider', (_e, provider: string) => {
   const cfg = loadConfig(); cfg.defaultProvider = provider; saveConfig(cfg)
   return { ok: true }
+})
+
+// ── Models ────────────────────────────────────────────────────────────────────
+ipcMain.handle('models:list', async () => {
+  const cfg      = loadConfig()
+  const provider = (cfg.defaultProvider as string) || 'ollama'
+  const p        = (cfg[provider] as Record<string, string>) || {}
+
+  if (provider === 'anthropic') {
+    return ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001']
+  }
+
+  // For Ollama (and other OpenAI-compatible), try /api/tags then /v1/models
+  const rawBase = (p.baseUrl || 'http://localhost:11434/v1').replace(/\/$/, '')
+  const ollamaBase = rawBase.replace(/\/v1$/, '')  // strip /v1 to get Ollama root
+
+  try {
+    const res = await axios.get(`${ollamaBase}/api/tags`, { timeout: 3000 })
+    const models = (res.data?.models || []) as Array<{ name: string }>
+    if (models.length) return models.map(m => m.name)
+  } catch {}
+
+  try {
+    const base = rawBase.endsWith('/v1') ? rawBase : `${rawBase}/v1`
+    const res  = await axios.get(`${base}/models`, { timeout: 3000, headers: { Authorization: `Bearer ${p.apiKey || 'ollama'}` } })
+    const data = (res.data?.data || []) as Array<{ id: string }>
+    if (data.length) return data.map(m => m.id)
+  } catch {}
+
+  return []  // empty = let UI show fallback list
 })
 
 // ── MCP + Hooks ───────────────────────────────────────────────────────────────

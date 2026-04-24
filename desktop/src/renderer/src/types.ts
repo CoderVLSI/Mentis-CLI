@@ -85,6 +85,9 @@ declare global {
       setModel:    (model: string)    => Promise<{ ok: boolean }>
       setProvider: (provider: string) => Promise<{ ok: boolean }>
 
+      // Models
+      listModels: () => Promise<string[]>
+
       // MCP + Hooks
       listMcp:   () => Promise<McpServer[]>
       listHooks: () => Promise<Record<string, HookEntry[]>>

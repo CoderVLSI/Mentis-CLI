@@ -27,6 +27,9 @@ contextBridge.exposeInMainWorld('mentis', {
   setModel:    (model: string)     => ipcRenderer.invoke('config:set-model', model),
   setProvider: (provider: string)  => ipcRenderer.invoke('config:set-provider', provider),
 
+  // Models
+  listModels: () => ipcRenderer.invoke('models:list'),
+
   // MCP + Hooks
   listMcp:   () => ipcRenderer.invoke('mcp:list'),
   listHooks: () => ipcRenderer.invoke('hooks:list'),
