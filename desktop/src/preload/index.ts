@@ -8,19 +8,30 @@ contextBridge.exposeInMainWorld('mentis', {
   clearHistory: ()                   => ipcRenderer.invoke('chat:clear'),
 
   // Approval
-  respondApproval: (id: string, approved: boolean) =>
-    ipcRenderer.invoke('approval:respond', id, approved),
+  respondApproval: (id: string, approved: boolean) => ipcRenderer.invoke('approval:respond', id, approved),
 
-  // Session
-  getSession:  ()                          => ipcRenderer.invoke('session:get'),
-  setMode:     (mode: 'PLAN' | 'BUILD')    => ipcRenderer.invoke('session:set-mode', mode),
-  setCwd:      (cwd: string)               => ipcRenderer.invoke('session:set-cwd', cwd),
+  // Current session
+  getSession: ()                         => ipcRenderer.invoke('session:get'),
+  setMode:    (mode: 'PLAN' | 'BUILD')   => ipcRenderer.invoke('session:set-mode', mode),
+  setCwd:     (cwd: string)              => ipcRenderer.invoke('session:set-cwd', cwd),
+
+  // Multi-session
+  listSessions:   ()                               => ipcRenderer.invoke('sessions:list'),
+  newSession:     ()                               => ipcRenderer.invoke('sessions:new'),
+  loadSession:    (id: string)                     => ipcRenderer.invoke('sessions:load', id),
+  deleteSession:  (id: string)                     => ipcRenderer.invoke('sessions:delete', id),
+  renameSession:  (id: string, title: string)      => ipcRenderer.invoke('sessions:rename', id, title),
+
+  // Config
+  getConfig:       ()                      => ipcRenderer.invoke('config:get'),
+  setModel:        (model: string)         => ipcRenderer.invoke('config:set-model', model),
+  setProvider:     (provider: string)      => ipcRenderer.invoke('config:set-provider', provider),
 
   // Window
-  pickFolder:  () => ipcRenderer.invoke('window:pick-folder'),
-  minimize:    () => ipcRenderer.invoke('window:minimize'),
-  maximize:    () => ipcRenderer.invoke('window:maximize'),
-  close:       () => ipcRenderer.invoke('window:close'),
+  pickFolder: () => ipcRenderer.invoke('window:pick-folder'),
+  minimize:   () => ipcRenderer.invoke('window:minimize'),
+  maximize:   () => ipcRenderer.invoke('window:maximize'),
+  close:      () => ipcRenderer.invoke('window:close'),
 
   // Platform
   platform: process.platform,

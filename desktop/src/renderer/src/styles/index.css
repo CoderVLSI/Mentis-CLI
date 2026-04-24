@@ -2,6 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer components {
+  .badge        { @apply text-[10px] px-1.5 py-0.5 rounded border; }
+  .badge.yellow { @apply bg-yellow-500/10 text-yellow-400 border-yellow-500/20; }
+  .badge.green  { @apply bg-green-500/10  text-green-400  border-green-500/20; }
+  .badge.red    { @apply bg-red-500/10    text-red-400    border-red-500/20; }
+  .badge.blue   { @apply bg-blue-500/10   text-blue-400   border-blue-500/20; }
+  .badge.gray   { @apply bg-[#222]        text-muted      border-border; }
+}
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body, #root {

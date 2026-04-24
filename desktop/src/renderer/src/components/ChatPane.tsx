@@ -1,48 +1,75 @@
 import { useEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { ChatMessage, ToolEvent } from '../types'
+import { ChatMessage, FeedItem, ToolEvent, ToolSummaryMessage } from '../types'
 import ToolCallCard from './ToolCallCard'
 
 interface Props {
-  messages:  ChatMessage[]
+  feed:      FeedItem[]
   tools:     Map<string, ToolEvent>
   thinking:  boolean
   streaming: boolean
   onApprove: (id: string, approved: boolean) => void
 }
 
-export default function ChatPane({ messages, tools, thinking, onApprove }: Props) {
+const TOOL_LABELS: Record<string, string> = {
+  read_file:  'read file',
+  write_file: 'wrote file',
+  edit_file:  'edited file',
+  list_dir:   'listed directory',
+  run_shell:  'ran command',
+}
+
+function toolSummaryText(names: string[]): string {
+  const counts: Record<string, number> = {}
+  for (const n of names) counts[n] = (counts[n] || 0) + 1
+  return Object.entries(counts)
+    .map(([n, c]) => c > 1 ? `${TOOL_LABELS[n] || n} ×${c}` : (TOOL_LABELS[n] || n))
+    .join(' · ')
+}
+
+export default function ChatPane({ feed, tools, thinking, onApprove }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, tools, thinking])
+  }, [feed, tools, thinking])
 
   const toolList = Array.from(tools.values())
 
   return (
-    <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-3 select-text">
-      {messages.length === 0 && !thinking && (
-        <EmptyState />
-      )}
+    <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-2 select-text">
+      {feed.length === 0 && !thinking && <EmptyState />}
 
-      {messages.map(msg => (
-        <MessageBubble key={msg.id} message={msg} />
-      ))}
+      {feed.map(item => {
+        if ((item as ToolSummaryMessage).type === 'tool_summary') {
+          const s = item as ToolSummaryMessage
+          return <ToolSummaryLine key={s.id} names={s.names} count={s.count} />
+        }
+        return <MessageBubble key={item.id} message={item as ChatMessage} />
+      })}
 
-      {/* Tool call cards — shown inline after last assistant message */}
       {toolList.length > 0 && (
-        <div className="flex flex-col gap-2 max-w-[720px] w-full self-start pl-0">
-          {toolList.map(t => (
-            <ToolCallCard key={t.id} tool={t} onApprove={onApprove} />
-          ))}
+        <div className="flex flex-col gap-1.5 max-w-[700px] w-full">
+          {toolList.map(t => <ToolCallCard key={t.id} tool={t} onApprove={onApprove} />)}
         </div>
       )}
 
       {thinking && <ThinkingIndicator />}
-
       <div ref={bottomRef} />
+    </div>
+  )
+}
+
+function ToolSummaryLine({ names, count }: { names: string[]; count: number }) {
+  return (
+    <div className="flex items-center gap-2 py-0.5 fade-in">
+      <div className="flex items-center gap-1.5 text-[11px] text-muted bg-[#111] border border-border rounded-full px-3 py-1">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-accent/60">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        </svg>
+        <span>{count > 1 ? `Ran ${count} operations` : 'Ran 1 operation'} — {toolSummaryText(names)}</span>
+      </div>
     </div>
   )
 }
@@ -53,7 +80,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   if (isUser) {
     return (
       <div className="flex justify-end fade-in">
-        <div className="max-w-[640px] px-4 py-2.5 rounded-2xl rounded-tr-sm bg-accent/20 border border-accent/30 text-[#ddd] text-sm leading-relaxed whitespace-pre-wrap">
+        <div className="max-w-[640px] px-4 py-2.5 rounded-2xl rounded-tr-sm bg-accent/15 border border-accent/25 text-[#ddd] text-sm leading-relaxed whitespace-pre-wrap">
           {message.content}
         </div>
       </div>
@@ -89,9 +116,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
                     <code className={className} {...props}>{children}</code>
                   )
                 },
-                pre({ children }) {
-                  return <>{children}</>
-                }
+                pre({ children }) { return <>{children}</> }
               }}
             >
               {message.content}
@@ -117,14 +142,8 @@ function ThinkingIndicator() {
 }
 
 function EmptyState() {
-  const tips = [
-    'Ask me to build, fix, or explain anything.',
-    'Use /plan to design before building.',
-    'I can read, write, edit files and run commands.',
-    'Type a task and I\'ll figure out the steps.',
-  ]
   return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-6 py-12 text-center">
+    <div className="flex-1 flex flex-col items-center justify-center gap-5 py-16 text-center">
       <div className="w-14 h-14 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center">
         <span className="text-2xl font-bold text-purple-300">M</span>
       </div>
@@ -132,10 +151,16 @@ function EmptyState() {
         <h2 className="text-lg font-semibold text-[#ddd] mb-1">Mentis Desktop</h2>
         <p className="text-muted text-sm">Your AI coding agent</p>
       </div>
-      <div className="flex flex-col gap-2 max-w-xs">
-        {tips.map((t, i) => (
-          <div key={i} className="text-xs text-muted bg-panel border border-border rounded-lg px-4 py-2">
-            {t}
+      <div className="grid grid-cols-2 gap-2 max-w-sm">
+        {[
+          ['Build a feature', 'Describe what to create'],
+          ['/plan', 'Design before building'],
+          ['Fix a bug', 'Paste the error or file'],
+          ['/status', 'View session info'],
+        ].map(([title, desc]) => (
+          <div key={title} className="text-left bg-panel border border-border rounded-xl px-3 py-2.5">
+            <div className="text-[11px] font-medium text-[#ccc] mb-0.5">{title}</div>
+            <div className="text-[10px] text-muted">{desc}</div>
           </div>
         ))}
       </div>
