@@ -96,6 +96,13 @@ ipcMain.handle('config:set-provider', (_e, provider: string) => {
   return { ok: true }
 })
 
+ipcMain.handle('config:update-provider-settings', (_e, provider: string, settings: Record<string, string>) => {
+  const cfg = loadConfig()
+  cfg[provider] = { ...((cfg[provider] as Record<string, string>) || {}), ...settings }
+  saveConfig(cfg)
+  return { ok: true }
+})
+
 // ── Models ────────────────────────────────────────────────────────────────────
 ipcMain.handle('models:list', async () => {
   const cfg      = loadConfig()

@@ -84,6 +84,7 @@ declare global {
       getConfig:   () => Promise<Record<string, unknown>>
       setModel:    (model: string)    => Promise<{ ok: boolean }>
       setProvider: (provider: string) => Promise<{ ok: boolean }>
+      updateProviderSettings: (provider: string, settings: Record<string, string>) => Promise<{ ok: boolean }>
 
       // Models
       listModels: () => Promise<string[]>

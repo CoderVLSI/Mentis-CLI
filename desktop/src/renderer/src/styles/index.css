@@ -32,6 +32,7 @@ html, body, #root {
 /* Drag region for frameless window */
 .titlebar { -webkit-app-region: drag; }
 .titlebar button { -webkit-app-region: no-drag; }
+.no-drag { -webkit-app-region: no-drag; }
 
 /* Code blocks */
 pre { overflow-x: auto; }

@@ -5,6 +5,7 @@ import ChatPane from './components/ChatPane'
 import ChatHeader from './components/ChatHeader'
 import InputBar from './components/InputBar'
 import TitleBar from './components/TitleBar'
+import SettingsModal from './components/SettingsModal'
 
 let _id = 0
 const uid = () => String(++_id)
@@ -18,6 +19,7 @@ export default function App() {
   const [thinking, setThinking]     = useState(false)
   const [model, setModelState]      = useState('llama3')
   const [provider, setProviderState] = useState('ollama')
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const pendingMsgId                = useRef<string | null>(null)
 
   // ── Bootstrap ──────────────────────────────────────────────────────────────
@@ -208,9 +210,29 @@ export default function App() {
     setModelState(pCfg.model || (p === 'anthropic' ? 'claude-sonnet-4-6' : 'llama3'))
   }, [])
 
+  const onSettingsSaved = useCallback(async () => {
+    const cfg  = await window.mentis.getConfig()
+    const p    = (cfg.defaultProvider as string) || 'ollama'
+    const pCfg = (cfg[p] as Record<string, string>) || {}
+    setProviderState(p)
+    setModelState(pCfg.model || (p === 'anthropic' ? 'claude-sonnet-4-6' : 'llama3'))
+  }, [])
+
   return (
+    <>
     <div className="flex flex-col h-full bg-surface text-[#e8e8e8] select-none">
-      <TitleBar onMinimize={window.mentis.minimize} onMaximize={window.mentis.maximize} onClose={window.mentis.close} />
+      <TitleBar
+        onMinimize={window.mentis.minimize}
+        onMaximize={window.mentis.maximize}
+        onClose={window.mentis.close}
+        onNewChat={newChat}
+        onPickFolder={pickFolder}
+        onExportChat={exportChat}
+        onToggleMode={toggleMode}
+        onClearChat={clearChat}
+        onOpenSettings={() => setSettingsOpen(true)}
+        mode={session.mode}
+      />
       <div className="flex flex-1 overflow-hidden">
         <Sidebar
           session={session}
@@ -245,5 +267,13 @@ export default function App() {
         </div>
       </div>
     </div>
+
+    {settingsOpen && (
+      <SettingsModal
+        onClose={() => setSettingsOpen(false)}
+        onSaved={onSettingsSaved}
+      />
+    )}
+    </>
   )
 }
