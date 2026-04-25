@@ -178,6 +178,10 @@ export default function App() {
   }, [session.mode, model, provider, clearChat])
 
   // ── Actions ────────────────────────────────────────────────────────────────
+  const clearChat = useCallback(async () => {
+    await window.mentis.clearHistory(); setFeed([]); setTools(new Map())
+  }, [])
+
   const send = useCallback(async (text: string) => {
     const t = text.trim()
     if (!t || streaming) return
@@ -213,10 +217,6 @@ export default function App() {
     await window.mentis.deleteSession(id)
     const s = await window.mentis.getSession(); setSession(s)
     const h = await window.mentis.getHistory(); loadFeedFromHistory(h)
-  }, [])
-
-  const clearChat = useCallback(async () => {
-    await window.mentis.clearHistory(); setFeed([]); setTools(new Map())
   }, [])
 
   const approve = useCallback((id: string, approved: boolean) => {
