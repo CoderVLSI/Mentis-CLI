@@ -151,9 +151,21 @@ export class ToolExecutor {
         const parts: string[] = [];
 
         for (const [key, value] of Object.entries(args)) {
-            const strValue = String(value);
-            // Truncate long values
-            const display = strValue.length > 30 ? strValue.slice(0, 30) + '...' : strValue;
+            let strValue: string;
+            if (value === null || value === undefined) {
+                strValue = String(value);
+            } else if (Array.isArray(value)) {
+                // Show count + first item preview instead of [object Object]
+                const preview = value.length > 0
+                    ? JSON.stringify(value[0]).substring(0, 40)
+                    : '[]';
+                strValue = `[${value.length} items: ${preview}...]`;
+            } else if (typeof value === 'object') {
+                strValue = JSON.stringify(value).substring(0, 60);
+            } else {
+                strValue = String(value);
+            }
+            const display = strValue.length > 50 ? strValue.slice(0, 50) + '...' : strValue;
             parts.push(`${key}=${chalk.dim(display)}`);
         }
 

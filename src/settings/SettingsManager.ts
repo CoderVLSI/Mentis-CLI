@@ -29,9 +29,14 @@ import os from 'os';
 import { HooksConfig } from '../hooks/HooksManager';
 import { PermissionsConfig } from '../permissions/PermissionManager';
 
+export interface SidekickSettings {
+    showOnStart?: boolean;
+}
+
 export interface MentisSettings {
     hooks?: HooksConfig;
     permissions?: PermissionsConfig;
+    sidekick?: SidekickSettings;
 }
 
 export class SettingsManager {
@@ -76,6 +81,10 @@ export class SettingsManager {
                 ...base.permissions,
                 ...override.permissions,
             },
+            sidekick: {
+                ...base.sidekick,
+                ...override.sidekick,
+            },
         };
     }
 
@@ -89,6 +98,10 @@ export class SettingsManager {
 
     getPermissions(): PermissionsConfig {
         return this.settings.permissions ?? {};
+    }
+
+    getSidekickSettings(): SidekickSettings {
+        return this.settings.sidekick ?? {};
     }
 
     /** Reload from disk (useful if settings.json was edited during a session). */

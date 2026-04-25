@@ -21,6 +21,7 @@ import { GitStatusTool, GitDiffTool, GitCommitTool, GitPushTool, GitPullTool } f
 import { Tool } from '../tools/Tool';
 import { McpClient } from '../mcp/McpClient';
 import { McpManager } from '../mcp/McpManager';
+import { McpRegistry } from '../mcp/McpRegistry';
 
 import { CheckpointManager } from '../checkpoint/CheckpointManager';
 import { SkillsManager } from '../skills/SkillsManager';
@@ -41,8 +42,58 @@ import { SettingsManager } from '../settings/SettingsManager';
 import { PermissionManager } from '../permissions/PermissionManager';
 import { TodoWriteTool, TodoReadTool, clearTodos } from '../tools/TodoTools';
 import { WebFetchTool } from '../tools/WebFetchTool';
+import { InstructionsLoader } from '../utils/InstructionsLoader';
+import { AgentManager } from '../agents/AgentManager';
+import { SpawnAgentTool } from '../tools/SpawnAgentTool';
+import { SpawnAgentsParallelTool } from '../tools/SpawnAgentsParallelTool';
+import { SidekickTool } from '../tools/SidekickTool';
+import { ComputerUseTool } from '../tools/ComputerUseTool';
+import { AnthropicClient } from '../llm/AnthropicClient';
+import { SidekickManager } from '../sidekick/SidekickManager';
+import { renderBanner, renderCard, renderInteraction } from '../sidekick/SidekickDisplay';
+import { MemoryManager } from '../memory/MemoryManager';
 
-const HISTORY_FILE = path.join(os.homedir(), '.mentis_history');
+const HISTORY_FILE     = path.join(os.homedir(), '.mentis_history');
+const GLOBAL_SESS_DIR  = path.join(os.homedir(), '.mentis', 'sessions');
+const GLOBAL_SESS_IDX  = path.join(os.homedir(), '.mentis', 'sessions.json');
+
+interface GlobalSessionMeta {
+    id: string; title: string; createdAt: number; updatedAt: number; messageCount: number; source?: string;
+}
+
+function loadGlobalIndex(): GlobalSessionMeta[] {
+    try { return JSON.parse(fs.readFileSync(GLOBAL_SESS_IDX, 'utf-8')); } catch { return []; }
+}
+
+function saveGlobalIndex(index: GlobalSessionMeta[]): void {
+    try {
+        if (!fs.existsSync(path.dirname(GLOBAL_SESS_IDX))) fs.mkdirSync(path.dirname(GLOBAL_SESS_IDX), { recursive: true });
+        fs.writeFileSync(GLOBAL_SESS_IDX, JSON.stringify(index, null, 2));
+    } catch {}
+}
+
+const ALL_COMMANDS = [
+    { value: '/help',     name: '/help         Show all available commands' },
+    { value: '/model',    name: '/model        Switch AI provider & model' },
+    { value: '/config',   name: '/config       Configure API keys & settings' },
+    { value: '/clear',    name: '/clear        Clear chat history & context' },
+    { value: '/sidekick', name: '/sidekick     Manage your sidekick companion' },
+    { value: '/memory',   name: '/memory       View & manage persistent memory' },
+    { value: '/init',     name: '/init         Initialize project with .mentis.md' },
+    { value: '/plan',     name: '/plan [task]  Ask questions → plan → /build to implement' },
+    { value: '/build',   name: '/build        Execute the agreed plan' },
+    { value: '/mcp',      name: '/mcp          Manage MCP servers' },
+    { value: '/add',      name: '/add <file>   Add file to context' },
+    { value: '/drop',     name: '/drop <file>  Remove file from context' },
+    { value: '/resume',   name: '/resume       Resume last session' },
+    { value: '/search',   name: '/search       Search codebase' },
+    { value: '/run',      name: '/run <cmd>    Run shell command' },
+    { value: '/commit',   name: '/commit       Git commit all changes' },
+    { value: '/skills',   name: '/skills       Manage agent skills' },
+    { value: '/commands', name: '/commands     Manage custom slash commands' },
+    { value: '/status',   name: '/status       Show session status' },
+    { value: '/exit',     name: '/exit         Save session & exit' },
+];
 
 export interface CliOptions {
     resume: boolean;
@@ -73,6 +124,13 @@ export class ReplManager {
     private permissionManager: PermissionManager;
     private sessionId: string;
     private options: CliOptions;
+    private instructionsLoader: InstructionsLoader;
+    private projectInstructions: string = '';
+    private agentManager: AgentManager;
+    private sidekickManager: SidekickManager;
+    private memoryManager: MemoryManager;
+    private sessionAllowedTools: Set<string> = new Set(); // tools allowed for whole session
+    private sessionDeniedTools: Set<string> = new Set();  // tools denied for whole session
 
     constructor(options: CliOptions = { resume: false, yolo: false, headless: false }) {
         this.options = options;
@@ -87,6 +145,11 @@ export class ReplManager {
         this.shell = new PersistentShell();
         this.sessionId = Date.now().toString(36);
         this.settingsManager = new SettingsManager();
+        this.agentManager = new AgentManager();
+        this.sidekickManager = new SidekickManager();
+        this.memoryManager = new MemoryManager();
+        this.instructionsLoader = new InstructionsLoader();
+        this.projectInstructions = this.instructionsLoader.load();
         this.hooksManager = new HooksManager(this.settingsManager.getHooks());
         this.permissionManager = new PermissionManager(
             this.settingsManager.getPermissions(),
@@ -103,6 +166,7 @@ export class ReplManager {
             new ListDirTool(),
             new SearchFileTool(), // grep
             new WebSearchTool(),
+            new ComputerUseTool(),
             new GitStatusTool(),
             new GitDiffTool(),
             new GitCommitTool(),
@@ -114,13 +178,45 @@ export class ReplManager {
             new WebFetchTool(),
         ];
 
-        // Configure Markdown Renderer
+        // Configure Markdown Renderer with syntax highlighting and terminal width
         marked.setOptions({
             // @ts-ignore
-            renderer: new TerminalRenderer()
+            renderer: new TerminalRenderer({
+                width: process.stdout.columns || 100,
+                reflowText: false,
+                code: chalk.reset,       // let cli-highlight do the coloring per-language
+                codespan: chalk.cyan,
+                strong: chalk.bold,
+                em: chalk.italic,
+                heading: chalk.cyan.bold,
+                firstHeading: chalk.cyan.bold.underline,
+            })
         });
         // Default to Ollama if not specified, assuming compatible endpoint
         this.initializeClient();
+
+        // SpawnAgentTool and SpawnAgentsParallelTool need modelClient — added after initializeClient()
+        this.tools.push(
+            new SpawnAgentTool(
+                this.agentManager,
+                this.modelClient,
+                () => this.tools
+            )
+        );
+        this.tools.push(
+            new SpawnAgentsParallelTool(
+                this.agentManager,
+                this.modelClient,
+                () => this.tools
+            )
+        );
+        this.tools.push(
+            new SidekickTool(
+                this.agentManager,
+                this.modelClient,
+                () => this.tools
+            )
+        );
 
         // Initialize skills system after client is ready
         this.initializeSkills();
@@ -244,6 +340,12 @@ export class ReplManager {
             baseUrl = config.glm?.baseUrl || 'https://api.z.ai/api/coding/paas/v4/';
             apiKey = config.glm?.apiKey || '';
             model = config.glm?.model || 'glm-4.6';
+        } else if (provider === 'anthropic') {
+            apiKey = (config as any).anthropic?.apiKey || process.env.ANTHROPIC_API_KEY || '';
+            model = (config as any).anthropic?.model || 'claude-opus-4-7';
+            this.currentModelName = model;
+            this.modelClient = new AnthropicClient(apiKey, model);
+            return; // AnthropicClient doesn't use baseUrl
         } else { // Default to Ollama
             baseUrl = config.ollama?.baseUrl || 'http://localhost:11434/v1';
             apiKey = 'ollama'; // Ollama typically doesn't use an API key in the same way
@@ -257,6 +359,10 @@ export class ReplManager {
 
     public async start() {
         await this.hooksManager.run('SessionStart', { sessionId: this.sessionId });
+
+        if (!this.instructionsLoader.hasInstructions()) {
+            console.log(chalk.dim('  Tip: Run /init to create a .mentis.md project instructions file.'));
+        }
         // Headless mode: non-interactive, process prompt and exit
         if (this.options.headless && this.options.headlessPrompt) {
             await this.handleChat(this.options.headlessPrompt);
@@ -266,8 +372,14 @@ export class ReplManager {
 
         UIManager.renderDashboard({
             model: this.currentModelName,
-            mode: this.mode,
-            cwd: process.cwd()
+            cwd: process.cwd(),
+            sidekick: this.sidekickManager.get(),
+            lastSession: (() => {
+                try {
+                    const cp = this.checkpointManager.load('latest');
+                    return cp ? { timestamp: cp.timestamp, messages: cp.history.length } : null;
+                } catch { return null; }
+            })(),
         });
 
         // Auto-resume if --resume flag is set
@@ -313,7 +425,7 @@ export class ReplManager {
             // Get styled input
             const answer = await inputBox.prompt({
                 showHint: this.history.length === 0,
-                hint: 'Type your message or /help for commands'
+                hint: 'Type your message  |  type /si to autocomplete  |  / + Enter → full list'
             });
 
             const input = answer.trim();
@@ -330,13 +442,71 @@ export class ReplManager {
 
             if (!input) continue;
 
+            // "/" alone or partial "/s" → filtered arrow-key picker
+            if (input === '/' || (input.startsWith('/') && !input.includes(' ') && !this.isKnownCommand(input))) {
+                const picked = await this.showCommandPicker(input === '/' ? '' : input);
+                if (picked) await this.handleCommand(picked);
+                continue;
+            }
+
             if (input.startsWith('/')) {
                 await this.handleCommand(input);
                 continue;
             }
 
             await this.handleChat(input);
+            this.syncGlobalSession();
         }
+    }
+
+    /** Returns true if input is a fully-typed known command */
+    private isKnownCommand(input: string): boolean {
+        const cmd = input.split(' ')[0];
+        return ALL_COMMANDS.some(c => c.value === cmd);
+    }
+
+    /** Show matching commands as a numbered menu; user picks by number */
+    private async showCommandPicker(prefix = ''): Promise<string | null> {
+        const choices = prefix
+            ? ALL_COMMANDS.filter(c => c.value.startsWith(prefix))
+            : ALL_COMMANDS;
+
+        if (choices.length === 0) {
+            console.log(chalk.red(`  No commands match "${prefix}"`));
+            return null;
+        }
+
+        // Single match — auto-execute immediately
+        if (choices.length === 1) {
+            console.log(chalk.dim(`  → ${choices[0].value}`));
+            return choices[0].value;
+        }
+
+        // Multiple matches — numbered menu
+        console.log('');
+        choices.forEach((c, i) => {
+            const num = chalk.yellow(`${i + 1})`);
+            const cmd = chalk.cyan(c.value.padEnd(14));
+            const desc = chalk.dim(c.name.replace(c.value, '').trim());
+            console.log(`  ${num} ${cmd} ${desc}`);
+        });
+        console.log('');
+
+        return new Promise<string | null>((resolve) => {
+            // Resume stdin after InputBox's readline closed (and paused) it
+            try { process.stdin.resume(); } catch {}
+
+            const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+            rl.question(chalk.cyan(`  Pick (1-${choices.length}) or Enter to cancel: `), (answer) => {
+                rl.close();
+                const n = parseInt(answer.trim(), 10);
+                if (!isNaN(n) && n >= 1 && n <= choices.length) {
+                    resolve(choices[n - 1].value);
+                } else {
+                    resolve(null);
+                }
+            });
+        });
     }
 
     private async handleCommand(input: string) {
@@ -347,6 +517,7 @@ export class ReplManager {
                 console.log('  /help    - Show this help message');
                 console.log('  /clear   - Clear chat history');
                 console.log('  /exit    - Exit the application');
+                console.log('  /sidekick [hatch|card|interact|toggle] - Manage your sidekick companion');
                 console.log('  /update  - Check for and install updates');
                 console.log('  /config  - Configure settings');
                 console.log('  /add <file> - Add file to context');
@@ -355,7 +526,7 @@ export class ReplManager {
                 console.log('  /build   - Switch to BUILD mode');
                 console.log('  /model   - Interactively select Provider & Model');
                 console.log('  /use <provider> [model] - Quick switch (legacy)');
-                console.log('  /mcp <cmd> - Manage MCP servers');
+                console.log('  /mcp <search|install|list|connect|...> - Manage MCP servers');
                 console.log('  /skills <list|show|create|validate> - Manage Agent Skills');
                 console.log('  /commands <list|create|validate> - Manage Custom Commands');
                 console.log('  /resume  - Resume last session');
@@ -365,16 +536,19 @@ export class ReplManager {
                 console.log('  /init    - Initialize project with .mentis.md');
                 break;
             case '/plan':
-                this.mode = 'PLAN';
-                UIManager.logBullet('Entered plan mode', 'magenta');
-                PlanModeUI.showPlanHeader();
-                PlanModeUI.showQAHistory();
+                await this.handlePlanCommand(args);
                 break;
             case '/build':
                 this.mode = 'BUILD';
-                UIManager.logBullet('Entered build mode', 'green');
-                PlanModeUI.showPlanSummary();
-                UIManager.logSystem('Mentis is building the solution...');
+                console.log('');
+                console.log(chalk.green('  ┌─── 🔨 BUILD MODE ───────────────────────────────────┐'));
+                console.log(chalk.green('  │') + chalk.dim('  Implementing the plan now...                       ') + chalk.green('│'));
+                console.log(chalk.green('  └─────────────────────────────────────────────────────┘'));
+                console.log('');
+                // If we have a plan from PLAN mode, execute it immediately
+                if (this.history.length > 0) {
+                    await this.handleChat('Execute the implementation plan we just agreed on. Implement every step fully.');
+                }
                 break;
             case '/model':
                 await this.handleModelCommand(args);
@@ -418,16 +592,26 @@ export class ReplManager {
             case '/config':
                 await this.handleConfigCommand();
                 break;
+            case '/memory':
+                await this.handleMemoryCommand(args);
+                break;
             case '/exit':
                 // Auto-save on exit (both local and global)
                 const cwd = process.cwd();
                 this.checkpointManager.saveLocalSession(cwd, this.history, this.contextManager.getFiles());
                 this.checkpointManager.save('latest', this.history, this.contextManager.getFiles());
-                this.shell.kill(); // Kill the shell process
-                this.mcpManager.disconnectAll(); // Disconnect all MCP connections
-                console.log(chalk.green('Session saved to .mentis/sessions/. Goodbye!'));
+                this.syncGlobalSession();
+                this.shell.kill();
+                this.mcpManager.disconnectAll();
+                this.sidekickManager.endSession();
+                // Extract and persist memories from this session in background
+                await this.extractAndSaveMemories();
+                console.log(chalk.green('Session saved. Goodbye!'));
                 await this.hooksManager.run('Stop', { sessionId: this.sessionId });
                 process.exit(0);
+                break;
+            case '/sidekick':
+                await this.handleSidekickCommand(args);
                 break;
             case '/update':
                 const UpdateManager = require('../utils/UpdateManager').UpdateManager;
@@ -448,9 +632,64 @@ export class ReplManager {
             case '/commands':
                 await this.handleCommandsCommand(args);
                 break;
+            case '/status':
+                this.handleStatusCommand();
+                break;
             default:
                 console.log(chalk.red(`Unknown command: ${command}`));
         }
+    }
+
+    private async handlePlanCommand(args: string[]): Promise<void> {
+        this.mode = 'PLAN';
+        PlanModeUI.clearHistory();
+        const task = args.join(' ').trim();
+
+        console.log('');
+        console.log(chalk.magenta('  ┌─── 🎯 PLAN MODE ────────────────────────────────────┐'));
+        console.log(chalk.magenta('  │') + chalk.dim('  Mentis will ask clarifying questions, build a plan, ') + chalk.magenta('│'));
+        console.log(chalk.magenta('  │') + chalk.dim('  then wait for /build to implement it.              ') + chalk.magenta('│'));
+        console.log(chalk.magenta('  └─────────────────────────────────────────────────────┘'));
+        console.log('');
+
+        if (task) {
+            // Start planning immediately with the provided task
+            await this.handleChat(task);
+        } else {
+            console.log(chalk.dim('  Describe your task and Mentis will ask questions + build a plan.'));
+            console.log('');
+        }
+    }
+
+    private handleStatusCommand(): void {
+        const usage = this.contextVisualizer.calculateUsage(this.history);
+        const files = this.contextManager.getFiles();
+        const sidekick = this.sidekickManager.get();
+        const w = process.stdout.columns || 80;
+        const bar = '─'.repeat(Math.min(w - 4, 50));
+
+        console.log('');
+        console.log(chalk.cyan(`  ┌${bar}┐`));
+        console.log(chalk.cyan('  │') + chalk.bold('  Session Status') + chalk.cyan(' '.repeat(Math.max(0, bar.length - 14)) + '│'));
+        console.log(chalk.cyan(`  ├${bar}┤`));
+
+        const row = (label: string, value: string) =>
+            console.log(chalk.cyan('  │') + `  ${chalk.dim(label.padEnd(12))} ${value}` + ' '.repeat(Math.max(0, bar.length - 14 - label.length - value.replace(/\x1b\[[0-9;]*m/g, '').length)) + chalk.cyan('│'));
+
+        row('Mode',    this.mode === 'PLAN' ? chalk.magenta('PLAN') : chalk.green('BUILD'));
+        row('Model',   chalk.cyan(this.currentModelName));
+        row('Messages', `${this.history.length} msgs · ${chalk.dim(usage.percentage + '% context used')}`);
+        row('Dir',     chalk.dim(process.cwd()));
+        if (files.length > 0) {
+            row('Files', files.map(f => chalk.yellow(path.basename(f))).join(', '));
+        }
+        if (sidekick) {
+            row('Sidekick', `${sidekick.name} · Lv.${sidekick.level} · ${sidekick.mood}`);
+        }
+        row('Session', chalk.dim(this.sessionId));
+
+        console.log(chalk.cyan(`  └${bar}┘`));
+        console.log('');
     }
 
     private getLoadingMessage(): string {
@@ -474,6 +713,25 @@ export class ReplManager {
         return messages[Math.floor(Math.random() * messages.length)];
     }
 
+    private syncGlobalSession(): void {
+        try {
+            if (!fs.existsSync(GLOBAL_SESS_DIR)) fs.mkdirSync(GLOBAL_SESS_DIR, { recursive: true });
+            const index = loadGlobalIndex();
+            const existing = index.find(s => s.id === this.sessionId);
+            const firstUser = this.history.find(m => m.role === 'user');
+            const title = (firstUser?.content as string || 'CLI session').slice(0, 60);
+            if (existing) {
+                existing.updatedAt    = Date.now();
+                existing.messageCount = this.history.length;
+                if (existing.title === 'CLI session' && firstUser) existing.title = title;
+            } else {
+                index.unshift({ id: this.sessionId, title, createdAt: Date.now(), updatedAt: Date.now(), messageCount: this.history.length, source: 'cli' });
+            }
+            saveGlobalIndex(index);
+            fs.writeFileSync(path.join(GLOBAL_SESS_DIR, `${this.sessionId}.json`), JSON.stringify(this.history, null, 2));
+        } catch {}
+    }
+
     private async handleChat(input: string) {
         const context = this.contextManager.getContextString();
         const skillsContext = this.skillsManager.getSkillsContext();
@@ -482,9 +740,13 @@ export class ReplManager {
 
         let modeInstruction = '';
         if (this.mode === 'PLAN') {
-            modeInstruction = '\n[SYSTEM: You are in PLAN mode. Focus on high-level architecture, requirements analysis, and creating a sturdy plan. Do not write full code implementation yet, just scaffolds or pseudocode if needed.]';
+            modeInstruction = `\n[SYSTEM: You are in PLAN mode. Follow this exact workflow:
+STEP 1 — CLARIFY: Use the ask_question tool to ask the user 2-4 focused clarifying questions (one at a time). Only ask what is genuinely ambiguous and would change the plan. Skip questions with obvious answers.
+STEP 2 — PLAN: After gathering answers, output a numbered implementation plan as a markdown list. Each step should be one concrete, actionable task. Title it "## Implementation Plan".
+STEP 3 — CONFIRM: After presenting the plan, ask the user (via ask_question) "Ready to implement? Type /build to start or let me know changes."
+Do NOT write any code yet — only the plan. Wait for /build before implementing.]`;
         } else {
-            modeInstruction = '\n[SYSTEM: You are in BUILD mode. Focus on implementing working code that solves the user request efficiently.]';
+            modeInstruction = '\n[SYSTEM: You are in BUILD mode. If a plan was agreed in PLAN mode, implement it step by step now — write all the code, create all the files, make it work. Use spawn_agent for isolated sub-tasks (research, code review, tests). After completing all steps, summarise what was built.]';
         }
 
         fullInput = `${input}${modeInstruction}`;
@@ -501,6 +763,18 @@ export class ReplManager {
 
         if (context) {
             fullInput = `${context}\n\nUser Question: ${fullInput}`;
+        }
+
+        // Inject .mentis.md project instructions (like CLAUDE.md in Claude Code)
+        if (this.projectInstructions) {
+            fullInput = `${this.projectInstructions}\n\n${fullInput}`;
+        }
+
+        // Inject persistent memory (global preferences + project facts)
+        const memoryBlock = this.memoryManager.buildPromptBlock();
+        if (memoryBlock && this.history.length === 0) {
+            // Only prepend on first message of session to avoid repeating every turn
+            fullInput = `${memoryBlock}\n\n${fullInput}`;
         }
 
         this.history.push({ role: 'user', content: fullInput });
@@ -552,7 +826,13 @@ export class ReplManager {
 
                     const toolName = toolCall.function.name;
                     const toolArgsStr = toolCall.function.arguments;
-                    const toolArgs = JSON.parse(toolArgsStr);
+                    let toolArgs: any = {};
+                    try {
+                        toolArgs = JSON.parse(toolArgsStr || '{}');
+                    } catch {
+                        // malformed JSON from model — use empty args and continue
+                        toolArgs = {};
+                    }
 
                     // Show tool execution with visual feedback
                     ToolExecutor.showInline(toolName, toolArgs);
@@ -576,36 +856,50 @@ export class ReplManager {
                     const skillAllows = this.isToolAllowedBySkill(
                         toolName === 'read_file' ? 'Read' : 'Write'
                     );
-                    const needsApproval = !skillAllows && this.permissionManager.needsApproval(toolName);
+                    const sessionAllowed = this.sessionAllowedTools.has(toolName) || this.sessionAllowedTools.has('*');
+                    const sessionDenied  = this.sessionDeniedTools.has(toolName)  || this.sessionDeniedTools.has('*');
+                    const needsApproval  = !skillAllows && !sessionAllowed && this.permissionManager.needsApproval(toolName);
+
+                    if (sessionDenied) {
+                        this.history.push({
+                            role: 'tool',
+                            tool_call_id: toolCall.id,
+                            name: toolName,
+                            content: `Error: Tool '${toolName}' denied for this session.`,
+                        });
+                        continue;
+                    }
 
                     if (needsApproval) {
-                        // Pause cancellation listener during user interaction
-                        if (process.stdin.isTTY) {
-                            process.stdin.removeListener('keypress', keyListener);
-                            process.stdin.setRawMode(false);
-                            process.stdin.pause();
-                        }
+                        // Give stdin to the approval prompt: exit raw mode, flush
+                        // any stale keypress listeners, and resume the stream.
+                        try { process.stdin.removeListener('keypress', keyListener); } catch {}
+                        if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
+                        try { process.stdin.resume(); } catch {}
 
-                        // Handle write_file with diff preview
-                        if (toolName === 'write_file') {
-                            approved = await this.handleWriteApproval(toolArgs.filePath, toolArgs.content);
-                        }
-
-                        // Handle edit_file with diff preview
-                        if (toolName === 'edit_file') {
-                            approved = await this.handleEditApproval(toolArgs);
-                        }
-
-                        // Handle read_file with multi-file selector
-                        if (toolName === 'read_file') {
-                            approved = await this.handleReadApproval(toolArgs.filePath);
-                        }
-
-                        // Resume cancellation listener
-                        if (process.stdin.isTTY) {
-                            process.stdin.setRawMode(true);
-                            process.stdin.resume();
-                            process.stdin.on('keypress', keyListener);
+                        try {
+                            if (toolName === 'write_file') {
+                                approved = await this.handleWriteApproval(toolArgs.filePath, toolArgs.content);
+                            } else if (toolName === 'edit_file') {
+                                approved = await this.handleEditApproval(toolArgs);
+                            } else if (toolName === 'read_file') {
+                                approved = await this.handleReadApproval(toolArgs.filePath);
+                            } else {
+                                // Generic approval for shell, git, etc.
+                                const argSummary = Object.entries(toolArgs)
+                                    .map(([k, v]) => `${k}=${String(v).substring(0, 40)}`)
+                                    .join(', ');
+                                console.log('');
+                                console.log(chalk.dim(`  Command: ${chalk.cyan(toolName)}(${argSummary})`));
+                                approved = await this.promptApproval(toolName, chalk.yellow(toolName));
+                            }
+                        } finally {
+                            // Always restore the cancellation listener, even on error.
+                            if (process.stdin.isTTY) {
+                                try { process.stdin.setRawMode(true); } catch {}
+                            }
+                            try { process.stdin.resume(); } catch {}
+                            try { process.stdin.on('keypress', keyListener); } catch {}
                         }
                     }
 
@@ -640,6 +934,14 @@ export class ReplManager {
                     let result = '';
 
                     if (tool) {
+                        // Some tools (enter_plan_mode, ask_question) call inquirer
+                        // internally. Inquirer cannot read input while stdin is in
+                        // raw mode (the ESC keypress listener). Pause raw mode for
+                        // the duration of every tool execution so they all work.
+                        try { process.stdin.removeListener('keypress', keyListener); } catch {}
+                        if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
+                        try { process.stdin.resume(); } catch {}
+
                         try {
                             result = await tool.execute(toolArgs);
 
@@ -655,10 +957,17 @@ export class ReplManager {
                             }
                         } catch (e: any) {
                             result = `Error: ${e.message}`;
+                        } finally {
+                            // Restore raw mode so ESC still cancels the next API call
+                            if (process.stdin.isTTY) { try { process.stdin.setRawMode(true); } catch {} }
+                            try { process.stdin.resume(); } catch {}
+                            try { process.stdin.on('keypress', keyListener); } catch {}
                         }
                     } else {
                         result = `Error: Tool ${toolName} not found.`;
                     }
+
+                    this.sidekickManager.recordToolCall(result.startsWith('Error:'));
 
                     await this.hooksManager.run('PostToolUse', {
                         toolName,
@@ -725,17 +1034,27 @@ export class ReplManager {
         } catch (error: any) {
             spinner.stop();
             if (error.message === 'Request cancelled by user') {
-                console.log(chalk.yellow('\nRequest cancelled by user.'));
+                console.log(chalk.yellow('\n  Cancelled.'));
+            } else if (error.message?.includes('timed out')) {
+                console.log(chalk.red('\n  Request timed out after 2 minutes. The API may be slow — try again or switch models with /model.'));
+            } else if (error.message?.includes('429') || error.message?.includes('rate limit')) {
+                console.log(chalk.yellow('\n  Rate limited. Retries exhausted — wait a moment and try again.'));
+            } else if (error.message?.includes('401') || error.message?.includes('403') || error.message?.includes('Unauthorized')) {
+                console.log(chalk.red('\n  Authentication error. Check your API key with /config.'));
             } else {
-                spinner.fail('Error getting response from model.');
-                console.error(error.message);
+                console.log(chalk.red(`\n  Error: ${error.message}`));
+                console.log(chalk.dim('  If this keeps happening, try /clear to reset context or /model to switch providers.'));
             }
         } finally {
+            // Defensive cleanup. Wrap every stdin mutation in try/catch so a
+            // terminal-specific quirk can't leave the CLI in a state where the
+            // next input prompt freezes. Do NOT pause stdin — the next readline
+            // interface in InputBox expects a resumed stream.
+            try { process.stdin.removeListener('keypress', keyListener); } catch {}
             if (process.stdin.isTTY) {
-                process.stdin.removeListener('keypress', keyListener);
-                process.stdin.setRawMode(false);
-                process.stdin.pause(); // Reset flow
+                try { process.stdin.setRawMode(false); } catch {}
             }
+            try { process.stdin.resume(); } catch {}
         }
     }
 
@@ -1016,20 +1335,117 @@ export class ReplManager {
 
     private async handleMcpCommand(args: string[]) {
         if (args.length === 0) {
-            console.log(chalk.red('Usage: /mcp <list|connect|disconnect|add|remove|test|config> [args]'));
+            console.log(chalk.red('Usage: /mcp <search|install|list|connect|disconnect|add|remove|test|config> [args]'));
             console.log(chalk.dim('\nExamples:'));
-            console.log(chalk.dim('  /mcp list                    - List all MCP servers'));
-            console.log(chalk.dim('  /mcp connect Exa\\ Search     - Connect to Exa Search'));
-            console.log(chalk.dim('  /mcp disconnect all           - Disconnect all servers'));
+            console.log(chalk.dim('  /mcp search                  - Browse the MCP registry'));
+            console.log(chalk.dim('  /mcp search browser          - Search registry by keyword'));
+            console.log(chalk.dim('  /mcp install chrome-devtools - Install Chrome DevTools MCP'));
+            console.log(chalk.dim('  /mcp list                    - List configured MCP servers'));
+            console.log(chalk.dim('  /mcp connect chrome-devtools - Connect to a server'));
+            console.log(chalk.dim('  /mcp disconnect all          - Disconnect all servers'));
             console.log(chalk.dim('  /mcp add MyServer npx -y @my/mcp-server'));
-            console.log(chalk.dim('  /mcp test Exa\\ Search         - Test connection'));
-            console.log(chalk.dim('  /mcp config                   - Show configuration'));
+            console.log(chalk.dim('  /mcp test chrome-devtools    - Test connection'));
+            console.log(chalk.dim('  /mcp config                  - Show configuration'));
             return;
         }
 
         const action = args[0];
 
         switch (action) {
+            case 'search': {
+                const query = args.slice(1).join(' ');
+                const results = McpRegistry.search(query);
+                if (results.length === 0) {
+                    console.log(chalk.yellow(`No MCPs found for "${query}"`));
+                    break;
+                }
+                if (query) {
+                    console.log(chalk.cyan(`\n  ${results.length} result(s) for "${query}":\n`));
+                    for (const e of results) {
+                        const installed = this.mcpManager.getAvailableServers().some(s => s.name === e.name);
+                        const badge = installed ? chalk.green(' [installed]') : '';
+                        console.log(`  ${chalk.bold(e.slug.padEnd(22))}${badge}`);
+                        console.log(chalk.dim(`    ${e.description.substring(0, 90)}`));
+                        if (e.requiredEnv?.length) {
+                            console.log(chalk.yellow(`    Requires: ${e.requiredEnv.join(', ')}`));
+                        }
+                        console.log('');
+                    }
+                } else {
+                    // Browse by category
+                    console.log(chalk.cyan('\n  MCP Registry\n'));
+                    const byCategory = McpRegistry.byCategory();
+                    for (const [cat, entries] of byCategory) {
+                        console.log(chalk.bold(`  ${McpRegistry.categoryLabel(cat)}`));
+                        for (const e of entries) {
+                            const installed = this.mcpManager.getAvailableServers().some(s => s.name === e.name);
+                            const badge = installed ? chalk.green(' ✓') : '';
+                            const envNote = e.requiredEnv?.length ? chalk.dim(` (needs ${e.requiredEnv[0]})`) : '';
+                            console.log(`    ${chalk.cyan(e.slug.padEnd(22))} ${chalk.dim(e.name)}${badge}${envNote}`);
+                        }
+                        console.log('');
+                    }
+                    console.log(chalk.dim('  Run /mcp install <slug> to add any of the above.'));
+                }
+                break;
+            }
+
+            case 'install': {
+                const slug = args[1];
+                if (!slug) {
+                    console.log(chalk.red('Usage: /mcp install <slug>'));
+                    console.log(chalk.dim('Run /mcp search to browse available MCPs.'));
+                    break;
+                }
+                const entry = McpRegistry.find(slug);
+                if (!entry) {
+                    console.log(chalk.red(`Unknown MCP: "${slug}"`));
+                    console.log(chalk.dim('Run /mcp search to browse available MCPs.'));
+                    break;
+                }
+                // Check if already configured
+                if (this.mcpManager.getAvailableServers().some(s => s.name === entry.name)) {
+                    console.log(chalk.yellow(`${entry.name} is already installed. Use /mcp connect ${entry.slug} to connect.`));
+                    break;
+                }
+                console.log(chalk.cyan(`\n  Installing ${entry.name}...`));
+                console.log(chalk.dim(`  Package : ${entry.package}`));
+                console.log(chalk.dim(`  Command : ${entry.command} ${entry.args.join(' ')}`));
+                // Prompt for required env vars
+                const envVars: Record<string, string> = {};
+                if (entry.requiredEnv?.length) {
+                    console.log(chalk.yellow(`\n  This MCP requires the following environment variables:`));
+                    for (const envKey of entry.requiredEnv) {
+                        const existing = process.env[envKey];
+                        if (existing) {
+                            console.log(chalk.green(`  ✓ ${envKey} already set`));
+                            envVars[envKey] = existing;
+                        } else {
+                            const { value } = await inquirer.prompt([{
+                                type: 'password',
+                                name: 'value',
+                                message: `  ${envKey}:`,
+                                mask: '*',
+                            }]);
+                            if (value) {
+                                envVars[envKey] = value;
+                                process.env[envKey] = value;
+                            }
+                        }
+                    }
+                }
+                await this.mcpManager.addServer(entry.name, entry.command, entry.args, entry.description);
+                if (Object.keys(envVars).length > 0) {
+                    this.mcpManager.getConfig().updateServer(entry.name, { env: envVars });
+                }
+                console.log(chalk.green(`\n  ✓ ${entry.name} installed!`));
+                console.log(chalk.dim(`  Run /mcp connect ${entry.slug} to start using it.`));
+                if (entry.homepage) {
+                    console.log(chalk.dim(`  Docs: ${entry.homepage}`));
+                }
+                break;
+            }
+
             case 'list':
                 await this.mcpManager.listServers();
                 break;
@@ -1410,6 +1826,50 @@ export class ReplManager {
     private async handleInitCommand(): Promise<void> {
         const initializer = new ProjectInitializer();
         await initializer.run();
+        this.projectInstructions = this.instructionsLoader.load();
+    }
+
+    private async handleSidekickCommand(args: string[]): Promise<void> {
+        const sub = args[0] ?? 'card';
+
+        switch (sub) {
+            case 'hatch':
+                if (this.sidekickManager.isHatched()) {
+                    console.log(chalk.yellow('  Your sidekick is already hatched! Use /sidekick card to see it.'));
+                    break;
+                }
+                {
+                    // Instant — no LLM call, name/personality generated from machine seed
+                    const sidekick = this.sidekickManager.hatchInstant();
+                    renderBanner(sidekick);
+                    console.log(chalk.cyan(`  "${sidekick.personality}"`));
+                }
+                break;
+            case 'card':
+                if (!this.sidekickManager.isHatched()) {
+                    console.log(chalk.yellow('  No sidekick yet! Run /sidekick hatch to get one.'));
+                    break;
+                }
+                renderCard(this.sidekickManager.get()!);
+                break;
+            case 'interact':
+                if (!this.sidekickManager.isHatched()) {
+                    console.log(chalk.yellow('  No sidekick yet! Run /sidekick hatch to get one.'));
+                    break;
+                }
+                renderInteraction(this.sidekickManager.get()!);
+                break;
+            case 'toggle': {
+                const cfg = this.settingsManager.getSidekickSettings();
+                const current = cfg.showOnStart !== false;
+                const updated = { ...this.settingsManager.getSettings(), sidekick: { ...cfg, showOnStart: !current } };
+                this.settingsManager.save(updated);
+                console.log(chalk.green(`  Sidekick banner on session start: ${!current ? 'ON' : 'OFF'}`));
+                break;
+            }
+            default:
+                console.log(chalk.dim('  Usage: /sidekick [hatch|card|interact|toggle]'));
+        }
     }
 
     private async handleCommandsCommand(args: string[]) {
@@ -1487,61 +1947,70 @@ export class ReplManager {
         await validateCommands(this.commandManager);
     }
 
-    /**
-     * Handle write_file approval with diff preview
-     */
+    /** Unified approval prompt — replaces plain Y/n with actionable choices */
+    private async promptApproval(toolName: string, label: string): Promise<boolean> {
+        const toolLabel = toolName.replace(/_/g, ' ');
+        console.log('');
+        console.log(chalk.cyan(`  Allow ${label}?`));
+        console.log('');
+        console.log(`  ${chalk.yellow('1)')} ${chalk.green('Yes')}`);
+        console.log(`  ${chalk.yellow('2)')} ${chalk.green(`Yes, allow all ${toolLabel} this session`)}`);
+        console.log(`  ${chalk.yellow('3)')} ${chalk.green('Yes, allow everything this session')}`);
+        console.log(`  ${chalk.yellow('4)')} ${chalk.red('No')}`);
+        console.log(`  ${chalk.yellow('5)')} ${chalk.red(`No, deny all ${toolLabel} this session`)}`);
+        console.log('');
+
+        return new Promise<boolean>((resolve) => {
+            try { process.stdin.resume(); } catch {}
+            const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+            rl.question(chalk.cyan('  Choose (1-5, Enter = Yes): '), (answer) => {
+                rl.close();
+                const n = parseInt(answer.trim() || '1', 10);
+                switch (n) {
+                    case 2: this.sessionAllowedTools.add(toolName); resolve(true);  return;
+                    case 3: this.sessionAllowedTools.add('*');      resolve(true);  return;
+                    case 4:                                          resolve(false); return;
+                    case 5: this.sessionDeniedTools.add(toolName);  resolve(false); return;
+                    default:                                         resolve(true);  return;
+                }
+            });
+        });
+    }
+
     private async handleWriteApproval(filePath: string, content: string): Promise<boolean> {
-        // Check if file exists and show diff
         const fullPath = path.resolve(filePath);
         if (fs.existsSync(fullPath)) {
             const oldContent = fs.readFileSync(fullPath, 'utf-8');
             DiffViewer.showDiff(filePath, oldContent, content);
         } else {
+            const ext = path.extname(filePath).slice(1);
+            const lines = content.split('\n');
             console.log('');
-            console.log(chalk.cyan(`📄 Creating new file: ${filePath}`));
-            console.log(chalk.dim('─'.repeat(60)));
-            console.log(chalk.green('New file content:'));
-            const preview = content.split('\n').slice(0, 10).join('\n');
-            console.log(chalk.dim(preview));
-            if (content.split('\n').length > 10) {
-                console.log(chalk.dim('...'));
+            console.log(chalk.cyan(`  📄 New file: ${chalk.bold(filePath)}`));
+            console.log(chalk.dim('  ' + '─'.repeat(58)));
+            try {
+                const { highlight } = require('cli-highlight');
+                const highlighted = highlight(content, { language: ext || 'text', ignoreIllegals: true });
+                highlighted.split('\n').forEach((l: string, i: number) =>
+                    console.log(chalk.dim(`${String(i + 1).padStart(4)} `) + l));
+            } catch {
+                lines.forEach((l, i) => console.log(chalk.dim(`${String(i + 1).padStart(4)} `) + l));
             }
-            console.log(chalk.dim('─'.repeat(60)));
+            console.log(chalk.dim('  ' + '─'.repeat(58)));
+            console.log(chalk.dim(`  ${lines.length} lines`));
         }
-
-        const { confirm } = await inquirer.prompt([
-            {
-                type: 'confirm',
-                name: 'confirm',
-                message: `Allow writing to ${chalk.yellow(filePath)}?`,
-                default: true
-            }
-        ]);
-
-        return confirm;
+        return this.promptApproval('write_file', `writing to ${chalk.yellow(filePath)}`);
     }
 
-    /**
-     * Handle edit_file approval with diff preview
-     */
-    private async handleEditApproval(args: { file_path: string; old_string: string; new_string: string }): Promise<boolean> {
-        // Get diff from EditFileTool (which shows preview)
+    private async handleEditApproval(args: any): Promise<boolean> {
         const editTool = this.tools.find(t => t.name === 'edit_file') as any;
-        if (editTool) {
-            const diffResult = await editTool.execute(args);
-            console.log(diffResult);
+        if (editTool && typeof editTool.preview === 'function') {
+            // preview() renders the diff without touching the file; the actual
+            // write happens in execute() after approval.
+            console.log(editTool.preview(args));
         }
-
-        const { confirm } = await inquirer.prompt([
-            {
-                type: 'confirm',
-                name: 'confirm',
-                message: `Apply edit to ${chalk.yellow(args.file_path)}?`,
-                default: true
-            }
-        ]);
-
-        return confirm;
+        const filePath = args.file_path ?? args.filePath ?? args.path ?? '(file)';
+        return this.promptApproval('edit_file', `editing ${chalk.yellow(filePath)}`);
     }
 
     /**
@@ -1551,6 +2020,95 @@ export class ReplManager {
         // For now, auto-approve single file reads
         // In the future, could batch multiple reads into a single selector
         return true;
+    }
+
+    /** Extract facts from the current session and save to memory stores */
+    private async extractAndSaveMemories(): Promise<void> {
+        if (this.history.length < 4) return; // too short to learn from
+
+        // Build a compact summary of the conversation for the LLM
+        const turns = this.history
+            .filter(m => m.role === 'user' || m.role === 'assistant')
+            .slice(-30) // last 30 turns max
+            .map(m => `${m.role.toUpperCase()}: ${(m.content ?? '').substring(0, 300)}`)
+            .join('\n');
+
+        const prompt = MemoryManager.extractionPrompt(turns);
+
+        try {
+            const resp = await this.modelClient.chat(
+                [{ role: 'user', content: prompt }],
+                [],
+            );
+            const raw = (resp.content ?? '').replace(/```json|```/g, '').trim();
+            if (!raw || raw === '[]') return;
+            const facts = JSON.parse(raw);
+            if (Array.isArray(facts) && facts.length > 0) {
+                this.memoryManager.merge(facts);
+                console.log(chalk.dim(`  ✓ Saved ${facts.length} memory update(s) for next session.`));
+            }
+        } catch {
+            // Memory extraction is non-critical — never surface errors to user
+        }
+    }
+
+    /** /memory command handler */
+    private async handleMemoryCommand(args: string[]): Promise<void> {
+        const sub = args[0] ?? 'list';
+
+        if (sub === 'list' || !sub) {
+            const global = this.memoryManager.getGlobal();
+            const project = this.memoryManager.getProject();
+
+            if (global.length === 0 && project.length === 0) {
+                console.log(chalk.dim('\n  No memories yet. They build up as you use Mentis.\n'));
+                return;
+            }
+
+            console.log('');
+            if (global.length > 0) {
+                console.log(chalk.bold.cyan('  Global (your preferences)'));
+                for (const e of global) {
+                    console.log(`  ${chalk.cyan('·')} ${chalk.bold(e.key)}: ${e.value}`);
+                }
+            }
+            if (project.length > 0) {
+                console.log(chalk.bold.cyan('\n  Project (this folder)'));
+                for (const e of project) {
+                    console.log(`  ${chalk.cyan('·')} ${chalk.bold(e.key)}: ${e.value}`);
+                }
+            }
+            console.log(chalk.dim('\n  /memory clear global|project  — wipe a tier'));
+            console.log(chalk.dim('  /memory add global <key> <value>  — add manually\n'));
+            return;
+        }
+
+        if (sub === 'clear') {
+            const scope = args[1] as 'global' | 'project';
+            if (scope !== 'global' && scope !== 'project') {
+                console.log(chalk.red('  Usage: /memory clear global|project'));
+                return;
+            }
+            this.memoryManager.clearScope(scope);
+            console.log(chalk.green(`  ✓ Cleared ${scope} memory.`));
+            return;
+        }
+
+        if (sub === 'add') {
+            const scope = args[1] as 'global' | 'project';
+            const key = args[2];
+            const value = args.slice(3).join(' ');
+            if (!scope || !key || !value) {
+                console.log(chalk.red('  Usage: /memory add global|project <key> <value>'));
+                return;
+            }
+            this.memoryManager.set(key, value, scope);
+            console.log(chalk.green(`  ✓ Saved: ${key} → ${value}`));
+            return;
+        }
+
+        console.log(chalk.red(`  Unknown subcommand: ${sub}`));
+        console.log(chalk.dim('  Usage: /memory [list|clear|add]'));
     }
 
     private estimateCost(input: number, output: number): number {

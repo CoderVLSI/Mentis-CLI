@@ -23,7 +23,14 @@ interface QuestionDef {
  */
 export class AskQuestionTool implements Tool {
     name = 'ask_question';
-    description = 'Ask the user a clarifying question. Use this in plan mode to gather requirements before implementation. Supports: text, confirm (yes/no), list (single choice), checkbox (multi-select).';
+    description = [
+        'Ask the user a clarifying question.',
+        'STRONGLY prefer arrow-key selection over free-text input — users hate typing.',
+        'Use type="confirm" for any yes/no question (arrow keys, one-key answer).',
+        'Use type="list" for 2+ discrete choices (arrow keys to select).',
+        'Use type="checkbox" for multi-select (space to toggle, enter to confirm).',
+        'Only use type="text" when an open-ended written answer is truly required (e.g. a name, a path, a description). NEVER use text for yes/no or choose-from-options.',
+    ].join(' ');
     parameters = {
         type: 'object',
         properties: {

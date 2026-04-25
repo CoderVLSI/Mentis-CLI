@@ -1,111 +1,225 @@
-# Mentis-CLI 🧠
-> **An Agentic, Multi-Model CLI Coding Assistant.**
+# Mentis CLI
 
-Mentis is a powerful terminal-based AI coding assistant that lives in your command line. It supports multiple LLM providers (Gemini, Ollama, OpenAI), agentic file operations, MCP (Model Context Protocol), and more.
-
-## ✨ Features
-
-*   **🤖 Multi-Model Support**: Switch seamlessly between **Gemini**, **Ollama** (Local), **OpenAI**, and **GLM-4.6** (Z.AI Coding).
-*   **🛠️ Agentic Capabilities**: Mentis can read, write, list files, and search your codebase to understand context.
-*   **🌐 Web Intelligence**: Hybrid search for documentation and error fixing.
-*   **🗺️ Smart Context**: Automatically maps your repository structure.
-*   **🧩 Interactive & Robust CLI**:
-    *   **History**: Navigate previous commands with Up/Down arrows (persistent across sessions).
-    *   **Cancellation**: Press `Esc` to instantly stop generation.
-    *   **Markdown**: Beautiful syntax highlighting in terminal output.
-*   **💰 Cost Awareness**: Real-time token usage and cost tracking.
-*   **🧠 Persistent Memory**: Auto-saves sessions (`/resume`) and checkpoints (`/checkpoint`).
-*   **🔌 MCP Support**: Full [Model Context Protocol](https://github.com/modelcontextprotocol) client.
-*   **🔍 Codebase Search**: Built-in `grep` tool.
-*   **🐚 Shell Integration**: Run shell commands and commit changes directly.
-
-## 🚀 Installation
-
-### Using NPM (Recommended)
-You can install Mentis globally directly from the NPM registry:
+> Agentic AI coding assistant for your terminal — multi-model, subagents, hooks, MCP, and a Tamagotchi sidekick.
 
 ```bash
 npm install -g @indiccoder/mentis-cli
+mentis
 ```
 
+---
 
-### From Source (Dev)
+## Features
+
+**Multi-model** — Switch between Claude (Anthropic), Gemini, GPT-4o, Ollama (local), GLM and others via a single config.
+
+**Agentic tools** — Read, write, edit files, run shell commands, grep, git operations. Asks permission before writing by default.
+
+**Subagents** — Spawn isolated AI agents for parallel or specialized tasks (`spawn_agent`, `spawn_agents_parallel`). Six built-in agents: `web-researcher`, `code-explorer`, `code-reviewer`, `test-runner`, `frontend`, `sidekick`. Define custom agents with markdown + YAML frontmatter in `.mentis/agents/`.
+
+**Hooks** — Run shell commands on lifecycle events: `SessionStart`, `PreToolUse`, `PostToolUse`, `Stop`. Configure in `settings.json`. `PreToolUse` hooks can block tool execution.
+
+**Permissions** — Per-tool allow/ask/deny modes. Defaults: writes/edits/shell/git-push → `ask`, reads → `allow`. Configurable in `settings.json`.
+
+**MCP (Model Context Protocol)** — Full MCP client with a curated registry of 18 servers. Install any MCP in one command:
+
+```
+/mcp search           # browse registry by category
+/mcp install chrome-devtools
+/mcp install playwright
+/mcp install github
+```
+
+**Prompt caching** — Native Anthropic SDK with automatic prompt caching. System prompt always cached; conversation history cached every 10 messages. Shows cache hit tokens in usage output.
+
+**Project instructions** — Drop a `.mentis.md` in your project root (or any parent directory). It's injected into the system prompt automatically every session. Run `/init` to generate one.
+
+**Sidekick** — A Tamagotchi-style coding companion generated deterministically from your machine identity. Evolves mood based on session activity. Use `/sidekick hatch` to get yours.
+
+**Web** — `web_search` (Serper/DuckDuckGo) and `web_fetch` (direct URL fetch + HTML strip) built in.
+
+**Todo tracking** — `todo_write` / `todo_read` tools let the AI track task progress across a session.
+
+---
+
+## Installation
+
+```bash
+npm install -g @indiccoder/mentis-cli
+mentis
+```
+
+Or from source:
+
 ```bash
 git clone https://github.com/CoderVLSI/Mentis-CLI.git
 cd Mentis-CLI
-npm install
-npm run build
-npm link
+npm install && npm run build && npm link
 ```
 
-## ⚙️ Configuration
+---
 
-Start Mentis by typing:
+## Quick Start
+
 ```bash
 mentis
 ```
 
-### Setting up Models
-Type `/model` inside the CLI to launch the interactive configuration wizard:
-1.  **Select Provider**: Gemini, Ollama, or OpenAI.
-2.  **Select Model**: e.g., `gemini-2.5-flash`, `llama3`.
-3.  **Enter Credentials**: API Key (for cloud) or Base URL (for local).
+On first run, type `/model` to configure your provider and API key.
 
-*Credentials are stored securely in `~/.mentisrc`.*
-
-### Web Search (Optional)
-
-Mentis includes web search capabilities for documentation and error solving. To enable it:
-
-1. **Get a free Tavily API key** at https://tavily.com
-2. Add to your `.env` file in your project directory:
-   ```
-   TAVILY_API_KEY=your_key_here
-   ```
-
-Alternatively, you can use **Exa** via MCP:
-```bash
-export EXA_API_KEY=your_key_here
-mentis
-/mcp connect "Exa Search"
+```
+/model
+# → Select provider: Anthropic / Gemini / OpenAI / Ollama / GLM
+# → Enter model name and API key
+# → Saved to ~/.mentisrc
 ```
 
-## 📖 Usage
+---
 
-### Modes
-*   **/plan**: Switch to high-level planning mode (Architecture, requirements).
-*   **/build**: Switch to code generation mode (Implementation).
+## Providers
 
-### Commands
+| Provider | Models | Setup |
+|---|---|---|
+| **Anthropic** | claude-opus-4, claude-sonnet-4, claude-haiku-4 | `ANTHROPIC_API_KEY` — includes prompt caching |
+| **Gemini** | gemini-2.5-pro, gemini-2.5-flash | `GEMINI_API_KEY` |
+| **OpenAI** | gpt-4o, gpt-4o-mini, o3 | `OPENAI_API_KEY` |
+| **Ollama** | llama3, deepseek-coder, qwen2.5 | Local, no key needed |
+| **GLM** | glm-4-plus | Z.AI API key |
+
+---
+
+## Commands
+
 | Command | Description |
-| :--- | :--- |
-| `/help` | Show available commands |
-| `/model` | Configure AI provider and model (Interactive) |
-| `/resume` | Resume the last session |
-| `/checkpoint` | Manage saved sessions (`save`, `load`, `list`) |
-| `/search <query>` | Search for code in the current directory |
-| `/mcp connect <cmd>` | Connect an MCP Server (e.g., `npx -y @modelcontextprotocol/server-time`) |
-| `/run <cmd>` | Execute a shell command |
-| `/commit [msg]` | Stage and commit changes to Git |
-| `/add <file>` | Add a specific file to context |
-| `/drop <file>` | Remove a file from context |
-| `/clear` | Clear chat history |
-| `/exit` | Save and exit |
+|---|---|
+| `/help` | Show all commands |
+| `/model` | Configure provider and model |
+| `/plan` | Switch to planning mode |
+| `/build` | Switch to build mode |
+| `/mcp search [query]` | Browse/search MCP registry |
+| `/mcp install <slug>` | Install an MCP from the registry |
+| `/mcp connect <name>` | Connect to a configured MCP |
+| `/mcp list` | List configured MCPs |
+| `/sidekick hatch` | Hatch your coding sidekick |
+| `/sidekick card` | Show sidekick stats card |
+| `/sidekick interact` | Interact with your sidekick |
+| `/sidekick toggle` | Toggle session-start banner |
+| `/init` | Generate `.mentis.md` project instructions |
+| `/add <file>` | Add file to context |
+| `/drop <file>` | Remove file from context |
+| `/resume` | Resume last session |
+| `/checkpoint` | Manage saved sessions |
+| `/search <query>` | Search codebase with grep |
+| `/commit [msg]` | Stage and commit changes |
+| `/run <cmd>` | Run a shell command |
+| `/skills` | Manage reusable skill scripts |
+| `/clear` | Clear context and todos |
+| `/exit` | Save session and exit |
 
-### Example Workflow
-```text
-Mentis > /plan
-[PLAN] > Analyze this project structure and suggest improvements.
+---
 
-Mentis > /build
-[BUILD] > Implement the FolderManager class in src/utils.ts.
+## MCP Registry
+
+Mentis ships with a curated registry of 18 MCPs installable via `/mcp install <slug>`:
+
+| Slug | Description |
+|---|---|
+| `chrome-devtools` | Official Chrome DevTools — JS eval, console logs, Lighthouse, screenshots |
+| `playwright` | Cross-browser automation (Chrome, Firefox, Safari, Edge) |
+| `puppeteer` | Headless Chrome scraping |
+| `exa` | Neural web search (requires `EXA_API_KEY`) |
+| `brave-search` | Brave Search API |
+| `tavily` | AI-optimised search |
+| `github` | GitHub repos, issues, PRs |
+| `linear` | Linear issue tracker |
+| `notion` | Notion pages and databases |
+| `postgres` | PostgreSQL query and inspect |
+| `sqlite` | SQLite databases |
+| `slack` | Slack channels and messages |
+| `filesystem` | Enhanced file operations |
+| `memory` | Persistent key-value memory |
+| `sequential-thinking` | Structured reasoning |
+| `cloudflare` | Cloudflare Workers, KV, R2, D1 |
+
+---
+
+## Hooks
+
+Configure hooks in `.mentis/settings.json` (project) or `~/.mentis/settings.json` (global):
+
+```json
+{
+  "hooks": {
+    "SessionStart": [{ "command": "echo 'Mentis started'" }],
+    "PreToolUse":   [{ "command": "./hooks/approve.sh", "blocking": true }],
+    "PostToolUse":  [{ "command": "./hooks/log.sh" }],
+    "Stop":         [{ "command": "./hooks/cleanup.sh" }]
+  },
+  "permissions": {
+    "run_shell": "ask",
+    "write_file": "ask",
+    "git_push": "deny",
+    "read_file": "allow"
+  }
+}
 ```
 
-## 🔒 Safety
-Mentis asks for **explicit approval** before writing or modifying any files, keeping you in control.
+Hook env vars: `MENTIS_HOOK_EVENT`, `MENTIS_TOOL_NAME`, `MENTIS_TOOL_ARGS`, `MENTIS_TOOL_RESULT`, `MENTIS_SESSION_ID`.
 
-## 🤝 Contributing
-Pull requests are welcome!
+---
 
-## 📄 License
+## Project Instructions (.mentis.md)
+
+Create a `.mentis.md` in your project root. It's injected into every session automatically:
+
+```bash
+/init   # generate one interactively
+```
+
+Mentis walks up the directory tree and loads all `.mentis.md` files it finds, outermost-first, so global instructions can be set in `~/.mentis/MENTIS.md`.
+
+---
+
+## Subagents
+
+Spawn isolated agents from within a conversation:
+
+```
+spawn_agent(agent="code-reviewer", task="Review src/auth for security issues")
+spawn_agents_parallel(agents=[
+  { agent: "code-explorer", task: "Map the auth module" },
+  { agent: "web-researcher", task: "Find latest JWT best practices" }
+])
+```
+
+Define custom agents in `.mentis/agents/my-agent.md`:
+
+```markdown
+---
+name: my-agent
+description: Does a specific thing
+tools: [read_file, run_shell]
+---
+You are a specialist in...
+```
+
+---
+
+## Sidekick
+
+Your sidekick is generated deterministically from your machine identity — same machine always produces the same species, rarity, and stats. Name and personality are generated by the LLM on first hatch.
+
+```
+/sidekick hatch     # generates name + personality via LLM
+/sidekick card      # full stats card with ASCII art
+/sidekick interact  # mood-based interaction
+/sidekick toggle    # toggle session-start banner on/off
+```
+
+18 species (daemon, pixel, seggy, regex, nibble, repl, null, hexer, stack, lambda, goroutine, recursion, cache, token, mutex, promise, shard, bit), 5 rarities (1% legendary), mood engine, XP levelling, daily streak. Saved to `~/.mentis/sidekick.json`.
+
+---
+
+## License
+
 ISC

@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "Mentis",
+    "slug": "mentis-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "mentis",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "backgroundColor": "#0d0d0d",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.mentis.mobile"
+    },
+    "android": {
+      "adaptiveIcon": { "backgroundColor": "#0d0d0d" },
+      "package": "com.mentis.mobile",
+      "edgeToEdgeEnabled": true
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        { "backgroundColor": "#0d0d0d", "resizeMode": "contain" }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

@@ -57,8 +57,14 @@ export class TodoWriteTool implements Tool {
         required: ['todos'],
     };
 
-    async execute(args: { todos: TodoItem[] }): Promise<string> {
-        todoList = args.todos;
+    async execute(args: { todos: any[] }): Promise<string> {
+        // Normalize field names — models sometimes use text/task/description instead of content
+        todoList = (args.todos ?? []).map((t: any, i: number) => ({
+            id:       String(t.id ?? i + 1),
+            content:  t.content ?? t.text ?? t.task ?? t.description ?? t.title ?? 'Untitled task',
+            status:   t.status ?? 'pending',
+            priority: t.priority ?? 'medium',
+        }));
         this.display();
         const done = todoList.filter(t => t.status === 'completed').length;
         return `Todo list updated: ${done}/${todoList.length} completed.`;
