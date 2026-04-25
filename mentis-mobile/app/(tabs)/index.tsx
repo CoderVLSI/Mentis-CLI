@@ -1,73 +1,108 @@
 import { useCallback, useRef, useState } from 'react'
 import {
-  FlatList, KeyboardAvoidingView, Platform,
-  StyleSheet, Text, View, SafeAreaView,
+  Alert, FlatList, KeyboardAvoidingView, Platform,
+  SafeAreaView, Share, StyleSheet, Text, TouchableOpacity, View,
 } from 'react-native'
-import { useChat, useSettings } from '../../store'
+import { useChat, useSettings, Message, Mode } from '../../store'
 import { streamAnthropicChat } from '../../services/anthropicClient'
 import { streamChat } from '../../services/mentisClient'
 import ChatBubble from '../../components/ChatBubble'
 import ChatInput from '../../components/ChatInput'
 import ThinkingDot from '../../components/ThinkingDot'
+import ToolCard from '../../components/ToolCard'
+import ModelPicker from '../../components/ModelPicker'
 import { C } from '../../constants/theme'
 
 export default function ChatScreen() {
-  const { feed, streaming, thinking, addMessage, newPendingMsg, appendChunk, setStreaming, setThinking, activeSession } = useChat()
+  const chat     = useChat()
   const settings = useSettings()
   const abortRef = useRef<AbortController | null>(null)
   const listRef  = useRef<FlatList>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError]           = useState<string | null>(null)
+  const [modelPickerOpen, setModelPickerOpen] = useState(false)
+  const pendingId = useRef<string | null>(null)
 
-  const scrollToEnd = () => {
-    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80)
+  const scrollToEnd = useCallback(() => {
+    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 60)
+  }, [])
+
+  // ── Slash command handler ──────────────────────────────────────────────────
+  const handleSlash = (text: string): boolean => {
+    const cmd = text.trim().toLowerCase()
+    if (cmd === '/clear') { chat.clearChat(); return true }
+    if (cmd === '/plan')  { chat.setMode('PLAN');  return true }
+    if (cmd === '/build') { chat.setMode('BUILD'); return true }
+    if (cmd === '/status') {
+      Alert.alert('Status', `Mode: ${chat.mode}\nModel: ${settings.model}\nProvider: ${settings.provider}\nSync: ${settings.syncMode}`)
+      return true
+    }
+    return false
   }
 
+  // ── Send message ───────────────────────────────────────────────────────────
   const send = useCallback(async (text: string) => {
-    if (streaming) return
+    if (chat.streaming) return
+    if (handleSlash(text)) return
     setError(null)
-    setThinking(true)
+    chat.setThinking(true)
 
-    // Add user message
-    addMessage({ id: `u${Date.now()}`, role: 'user', content: text, timestamp: Date.now() })
+    chat.addMessage({ id: `u${Date.now()}`, role: 'user', content: text, timestamp: Date.now() })
     scrollToEnd()
 
-    const pendingId = newPendingMsg()
+    const id = chat.newPendingMsg()
+    pendingId.current = id
     scrollToEnd()
 
     const onChunk = (chunk: string) => {
-      appendChunk(pendingId, chunk)
-      setStreaming(true)
-      setThinking(false)
+      chat.appendChunk(id, chunk)
+      chat.setStreaming(true)
+      chat.setThinking(false)
       scrollToEnd()
     }
-    const onDone = () => { setStreaming(false); setThinking(false) }
+    const onDone  = () => { chat.setStreaming(false); chat.setThinking(false); pendingId.current = null }
     const onError = (err: string) => {
       setError(err)
-      setStreaming(false)
-      setThinking(false)
+      chat.setStreaming(false)
+      chat.setThinking(false)
+      pendingId.current = null
     }
 
     if (settings.syncMode === 'desktop') {
-      await streamChat(settings.desktopHost, text, activeSession, onChunk, onDone, onError)
+      await streamChat(settings.desktopHost, text, chat.activeSession, onChunk, onDone, onError)
     } else {
-      // Standalone — direct Anthropic
       abortRef.current = new AbortController()
-      const history = feed
-        .filter(m => m.role === 'user' || m.role === 'assistant')
-        .map(m => ({ role: m.role, content: m.content }))
+      const history = chat.feed
+        .filter(m => m.content)
+        .map(m => ({ role: m.role, content: m.content })) as Array<{ role: 'user' | 'assistant'; content: string }>
       await streamAnthropicChat(
         settings.anthropicKey, settings.model,
-        history as Array<{ role: 'user' | 'assistant'; content: string }>,
-        text, onChunk, onDone, onError, abortRef.current.signal,
+        history, text, onChunk, onDone, onError, abortRef.current.signal,
       )
     }
-  }, [streaming, feed, settings, activeSession])
+  }, [chat, settings])
 
   const cancel = () => {
     abortRef.current?.abort()
-    setStreaming(false)
-    setThinking(false)
+    chat.setStreaming(false)
+    chat.setThinking(false)
   }
+
+  const exportChat = async () => {
+    const lines = chat.feed.map(m =>
+      m.role === 'user' ? `**You:** ${m.content}` : `**Mentis:** ${m.content}`
+    ).join('\n\n')
+    await Share.share({ message: lines, title: 'Mentis Chat Export' })
+  }
+
+  const toggleMode = () => chat.setMode(chat.mode === 'PLAN' ? 'BUILD' : 'PLAN')
+
+  // ── Render feed items ──────────────────────────────────────────────────────
+  type FeedRow = { type: 'msg'; data: Message } | { type: 'thinking' }
+
+  const feedRows: FeedRow[] = [
+    ...chat.feed.map(m => ({ type: 'msg' as const, data: m })),
+    ...(chat.thinking ? [{ type: 'thinking' as const }] : []),
+  ]
 
   return (
     <SafeAreaView style={styles.root}>
@@ -77,40 +112,91 @@ export default function ChatScreen() {
           <View style={styles.logo}><Text style={styles.logoText}>M</Text></View>
           <Text style={styles.headerTitle}>Mentis</Text>
         </View>
-        <View style={[styles.modeBadge, { borderColor: C.accent + '44', backgroundColor: C.accent + '18' }]}>
-          <Text style={[styles.modeText, { color: C.accentL }]}>
-            {settings.syncMode === 'desktop' ? '⬡ Desktop' : '☁ Cloud'}
-          </Text>
+
+        <View style={styles.headerRight}>
+          {/* Mode toggle */}
+          <TouchableOpacity style={[styles.badge, chat.mode === 'PLAN' ? styles.badgePlan : styles.badgeBuild]} onPress={toggleMode}>
+            <Text style={[styles.badgeText, { color: chat.mode === 'PLAN' ? C.yellow : C.green }]}>
+              {chat.mode}
+            </Text>
+          </TouchableOpacity>
+
+          {/* Model selector */}
+          <TouchableOpacity style={styles.modelBtn} onPress={() => setModelPickerOpen(true)}>
+            <Text style={styles.modelText} numberOfLines={1}>
+              {settings.model.replace('claude-', '').replace('-4-7', ' Opus').replace('-4-6', ' Sonnet').replace('-4-5-20251001', ' Haiku')}
+            </Text>
+            <Text style={styles.modelChevron}>▾</Text>
+          </TouchableOpacity>
+
+          {/* Export */}
+          {chat.feed.length > 0 && (
+            <TouchableOpacity style={styles.iconBtn} onPress={exportChat} title="Export">
+              <Text style={styles.iconBtnText}>↑</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Clear */}
+          {chat.feed.length > 0 && (
+            <TouchableOpacity
+              style={styles.iconBtn}
+              onPress={() => Alert.alert('Clear chat?', 'This cannot be undone.', [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Clear', style: 'destructive', onPress: chat.clearChat },
+              ])}
+            >
+              <Text style={styles.iconBtnText}>⌫</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
+
+      {/* Sync badge */}
+      {settings.syncMode === 'desktop' && (
+        <View style={styles.syncBar}>
+          <Text style={styles.syncText}>⬡ Synced with desktop — {settings.desktopHost}</Text>
+        </View>
+      )}
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={0}
       >
+        {/* Tool cards (pending approvals at top) */}
+        {Array.from(chat.tools.values()).filter(t => t.needsApproval && t.status === 'pending').map(t => (
+          <ToolCard key={t.id} tool={t} onApprove={(id, ok) => {
+            // In desktop sync mode, send approval via IPC
+            chat.upsertTool({ ...t, status: ok ? 'approved' : 'denied' })
+          }} />
+        ))}
+
         {/* Feed */}
         <FlatList
           ref={listRef}
-          data={feed}
-          keyExtractor={m => m.id}
-          renderItem={({ item }) => <ChatBubble message={item} />}
+          data={feedRows}
+          keyExtractor={(_, i) => String(i)}
+          renderItem={({ item }) =>
+            item.type === 'thinking'
+              ? <ThinkingDot />
+              : <ChatBubble message={item.data} isStreaming={item.data.id === pendingId.current && chat.streaming} />
+          }
           contentContainerStyle={styles.feedContent}
           ListEmptyComponent={<EmptyState />}
-          ListFooterComponent={thinking ? <ThinkingDot /> : null}
           onContentSizeChange={scrollToEnd}
+          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         />
 
-        {/* Error banner */}
+        {/* Error */}
         {error && (
-          <View style={styles.errorBanner}>
-            <Text style={styles.errorText}>⚠ {error}</Text>
-          </View>
+          <TouchableOpacity style={styles.errorBanner} onPress={() => setError(null)}>
+            <Text style={styles.errorText}>⚠ {error}  (tap to dismiss)</Text>
+          </TouchableOpacity>
         )}
 
-        {/* Input */}
-        <ChatInput onSend={send} onCancel={cancel} streaming={streaming || thinking} />
+        <ChatInput onSend={send} onCancel={cancel} streaming={chat.streaming || chat.thinking} />
       </KeyboardAvoidingView>
+
+      <ModelPicker visible={modelPickerOpen} onClose={() => setModelPickerOpen(false)} />
     </SafeAreaView>
   )
 }
@@ -118,29 +204,44 @@ export default function ChatScreen() {
 function EmptyState() {
   return (
     <View style={styles.empty}>
-      <Text style={styles.emptyIcon}>M</Text>
+      <Text style={styles.emptyM}>M</Text>
       <Text style={styles.emptyTitle}>Mentis</Text>
-      <Text style={styles.emptySub}>Your AI coding assistant</Text>
-      <Text style={styles.emptyHint}>Type a message to start</Text>
+      <Text style={styles.emptySub}>AI coding assistant</Text>
+      <View style={styles.emptyHints}>
+        {['/plan — plan before coding', '/build — switch to build mode', '/clear — clear history'].map(h => (
+          <Text key={h} style={styles.emptyHint}>{h}</Text>
+        ))}
+      </View>
     </View>
   )
 }
 
 const styles = StyleSheet.create({
   root:         { flex: 1, backgroundColor: C.bg },
-  header:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.panel },
+  header:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.panel },
   headerLeft:   { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  logo:         { width: 24, height: 24, borderRadius: 6, backgroundColor: C.accent + '33', alignItems: 'center', justifyContent: 'center' },
-  logoText:     { fontSize: 12, fontWeight: '700', color: C.accentL },
-  headerTitle:  { fontSize: 15, fontWeight: '600', color: C.text },
-  modeBadge:    { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1 },
-  modeText:     { fontSize: 11, fontWeight: '500' },
-  feedContent:  { padding: 12, paddingBottom: 8, flexGrow: 1 },
+  logo:         { width: 26, height: 26, borderRadius: 7, backgroundColor: C.accent + '33', alignItems: 'center', justifyContent: 'center' },
+  logoText:     { fontSize: 12, fontWeight: '800', color: C.accentL },
+  headerTitle:  { fontSize: 15, fontWeight: '700', color: C.text },
+  headerRight:  { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  badge:        { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 5, borderWidth: 1 },
+  badgePlan:    { borderColor: C.yellow + '44', backgroundColor: C.yellow + '18' },
+  badgeBuild:   { borderColor: C.green  + '44', backgroundColor: C.green  + '18' },
+  badgeText:    { fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
+  modelBtn:     { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: C.panel2, borderRadius: 7, borderWidth: 1, borderColor: C.border2, maxWidth: 110 },
+  modelText:    { fontSize: 11, color: C.muted2, fontFamily: 'Courier New', flex: 1 },
+  modelChevron: { fontSize: 10, color: C.muted },
+  iconBtn:      { width: 28, height: 28, borderRadius: 7, backgroundColor: C.panel2, borderWidth: 1, borderColor: C.border2, alignItems: 'center', justifyContent: 'center' },
+  iconBtnText:  { fontSize: 14, color: C.muted2 },
+  syncBar:      { paddingHorizontal: 14, paddingVertical: 6, backgroundColor: C.accent + '18', borderBottomWidth: 1, borderBottomColor: C.accent + '33' },
+  syncText:     { fontSize: 11, color: C.accentL },
+  feedContent:  { paddingTop: 12, paddingBottom: 8, flexGrow: 1 },
   errorBanner:  { marginHorizontal: 12, marginBottom: 4, backgroundColor: C.red + '22', borderWidth: 1, borderColor: C.red + '44', borderRadius: 8, padding: 10 },
   errorText:    { color: C.red, fontSize: 12 },
-  empty:        { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80, gap: 6 },
-  emptyIcon:    { fontSize: 32, fontWeight: '800', color: C.accent },
-  emptyTitle:   { fontSize: 18, fontWeight: '700', color: C.text },
-  emptySub:     { fontSize: 13, color: C.muted2 },
-  emptyHint:    { fontSize: 12, color: C.muted, marginTop: 8 },
+  empty:        { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 6 },
+  emptyM:       { fontSize: 36, fontWeight: '800', color: C.accent },
+  emptyTitle:   { fontSize: 20, fontWeight: '700', color: C.text },
+  emptySub:     { fontSize: 13, color: C.muted2, marginBottom: 16 },
+  emptyHints:   { gap: 6, alignItems: 'center' },
+  emptyHint:    { fontSize: 12, color: C.muted, fontFamily: 'Courier New' },
 })
