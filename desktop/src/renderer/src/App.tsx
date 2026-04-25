@@ -122,6 +122,10 @@ export default function App() {
     return () => off.forEach(fn => fn())
   }, [])
 
+  const clearChat = useCallback(async () => {
+    await window.mentis.clearHistory(); setFeed([]); setTools(new Map())
+  }, [])
+
   // ── Slash command handler ──────────────────────────────────────────────────
   const sysMsg = (content: string) =>
     setFeed(prev => [...prev, { id: uid(), role: 'assistant' as const, content, timestamp: Date.now() }])
@@ -178,10 +182,6 @@ export default function App() {
   }, [session.mode, model, provider, clearChat])
 
   // ── Actions ────────────────────────────────────────────────────────────────
-  const clearChat = useCallback(async () => {
-    await window.mentis.clearHistory(); setFeed([]); setTools(new Map())
-  }, [])
-
   const send = useCallback(async (text: string) => {
     const t = text.trim()
     if (!t || streaming) return
