@@ -2,6 +2,7 @@ import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { HeadlessEngine, loadConfig, saveConfig } from './engine'
+import { startSyncServer } from './syncServer'
 import os from 'os'
 import fs from 'fs-extra'
 import path from 'path'
@@ -64,6 +65,7 @@ app.whenReady().then(() => {
   app.on('browser-window-created', (_, w) => optimizer.watchWindowShortcuts(w))
   createWindow()
   forwardEngineEvents()
+  startSyncServer(engine)  // mobile sync on :3747
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 })
 
@@ -164,6 +166,18 @@ ipcMain.handle('window:pick-folder', async () => {
   const result = await dialog.showOpenDialog(mainWindow!, { properties: ['openDirectory'] })
   return result.filePaths[0] || null
 })
+ipcMain.handle('sync:info', () => {
+  // Return local IPs so the desktop Settings modal can show them
+  const nets = os.networkInterfaces()
+  const ips: string[] = []
+  for (const iface of Object.values(nets)) {
+    for (const info of iface ?? []) {
+      if (info.family === 'IPv4' && !info.internal) ips.push(info.address)
+    }
+  }
+  return { port: 3747, ips }
+})
+
 ipcMain.handle('window:minimize', () => mainWindow?.minimize())
 ipcMain.handle('window:maximize', () => { if (mainWindow?.isMaximized()) mainWindow.unmaximize(); else mainWindow?.maximize() })
 ipcMain.handle('window:close',    () => mainWindow?.close())
