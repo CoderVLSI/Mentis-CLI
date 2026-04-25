@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { ChatMessage, FeedItem, SessionInfo, SessionMeta, ToolEvent, ToolSummaryMessage } from './types'
 import Sidebar from './components/Sidebar'
 import ChatPane from './components/ChatPane'
