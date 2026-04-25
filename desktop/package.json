@@ -22,7 +22,7 @@
     "fs-extra": "^11.2.0",
     "highlight.js": "^11.10.0",
     "marked": "^15.0.0",
-    "node-pty-prebuilt-multiarch": "^0.10.1",
+    "node-pty": "^1.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^9.0.1",
