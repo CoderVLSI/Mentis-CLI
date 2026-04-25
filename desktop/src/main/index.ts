@@ -188,8 +188,8 @@ ipcMain.handle('terminal:create', (_e, cols: number, rows: number) => {
 
   const id    = String(++ptyCounter)
   const shell = process.platform === 'win32'
-    ? (process.env.COMSPEC || 'cmd.exe')
-    : (process.env.SHELL   || '/bin/bash')
+    ? 'powershell.exe'
+    : (process.env.SHELL || '/bin/bash')
 
   try {
     const proc = pty.spawn(shell, [], {
