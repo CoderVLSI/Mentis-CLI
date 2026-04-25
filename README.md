@@ -38,6 +38,35 @@ npm run build
 npm link
 ```
 
+### Windows — Native Module Compilation
+
+Mentis includes `screenshot-desktop` which compiles a native addon on Windows. If `npm install` fails with a node-gyp error, Python is required.
+
+**npm v10+ (current):** The `npm config set python` command was removed. Use an environment variable instead — set it in the same shell session before running `npm install`:
+
+```powershell
+# PowerShell
+$env:npm_config_python = "C:\path\to\python.exe"
+npm install -g @indiccoder/mentis-cli
+```
+
+```cmd
+:: Command Prompt
+set npm_config_python=C:\path\to\python.exe
+npm install -g @indiccoder/mentis-cli
+```
+
+Alternatively, add the following line directly to your user `.npmrc` file (`%USERPROFILE%\.npmrc`) — **do not** use `npm config set python` as it will error on npm v10+:
+
+```ini
+python=C:\path\to\python.exe
+```
+
+**Finding your Python path:** If you manage Python with [uv](https://github.com/astral-sh/uv), the executable is typically at:
+```
+%APPDATA%\uv\python\cpython-<version>-windows-x86_64-none\python.exe
+```
+
 ## ⚙️ Configuration
 
 Start Mentis by typing:
