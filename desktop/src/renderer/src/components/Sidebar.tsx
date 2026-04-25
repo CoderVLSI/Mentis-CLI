@@ -11,6 +11,7 @@ interface Props {
   onToggleMode:   () => void
   onClear:        () => void
   onOpenSettings: () => void
+  width?:         number
 }
 
 type Panel = 'sessions' | 'search' | 'mcp' | 'hooks'
@@ -35,7 +36,7 @@ function groupSessions(sessions: SessionMeta[]) {
   return g
 }
 
-export default function Sidebar({ session, sessions, onNew, onSwitch, onDelete, onPickFolder, onToggleMode, onClear, onOpenSettings }: Props) {
+export default function Sidebar({ session, sessions, onNew, onSwitch, onDelete, onPickFolder, onToggleMode, onClear, onOpenSettings, width }: Props) {
   const [panel, setPanel]         = useState<Panel>('sessions')
 
   const [hoverId, setHoverId]     = useState<string | null>(null)
@@ -43,8 +44,8 @@ export default function Sidebar({ session, sessions, onNew, onSwitch, onDelete, 
   const [hooks, setHooks]         = useState<Record<string, HookEntry[]>>({})
 
   useEffect(() => {
-    if (panel === 'mcp')   window.mentis.listMcp().then(setMcpList)
-    if (panel === 'hooks') window.mentis.listHooks().then(setHooks)
+    if (panel === 'mcp')   window.mentis.listMcp().then(data => setMcpList(data ?? [])).catch(() => setMcpList([]))
+    if (panel === 'hooks') window.mentis.listHooks().then(data => setHooks(data ?? {})).catch(() => setHooks({}))
   }, [panel])
 
   const groups = useMemo(() => groupSessions(sessions), [sessions])
@@ -67,7 +68,7 @@ export default function Sidebar({ session, sessions, onNew, onSwitch, onDelete, 
   )
 
   return (
-    <aside className="flex flex-col w-56 bg-[#0a0a0a] border-r border-border shrink-0 overflow-hidden">
+    <aside className="flex flex-col bg-[#0a0a0a] border-r border-border shrink-0 overflow-hidden" style={{ width: width ?? 224 }}>
       {/* Logo */}
       <div className="flex items-center gap-2 px-3 py-3 border-b border-border">
         <div className="w-5 h-5 rounded bg-accent/20 flex items-center justify-center">
@@ -191,18 +192,19 @@ function SearchPanel({ sessions, onSwitch, currentId }: { sessions: SessionMeta[
 }
 
 function McpPanel({ servers }: { servers: McpServer[] }) {
+  const list = servers ?? []
   return (
     <div className="pt-1">
       <div className="flex items-center justify-between px-2 py-1 mb-1">
         <span className="text-[10px] text-muted uppercase tracking-widest">MCP Servers</span>
-        <span className="text-[10px] text-muted">{servers.length}</span>
+        <span className="text-[10px] text-muted">{list.length}</span>
       </div>
-      {servers.length === 0 ? (
+      {list.length === 0 ? (
         <div className="px-2 py-4 text-center">
           <div className="text-[11px] text-muted mb-1">No MCP servers configured</div>
           <div className="text-[10px] text-muted/60">Run <code className="font-mono bg-[#111] px-1 rounded">mentis /mcp</code> in CLI</div>
         </div>
-      ) : servers.map((s, i) => (
+      ) : list.map((s, i) => (
         <div key={i} className="px-2 py-2 rounded-lg bg-panel border border-border mb-1">
           <div className="flex items-center gap-2">
             <div className="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0" />
