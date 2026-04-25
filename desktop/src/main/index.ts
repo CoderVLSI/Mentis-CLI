@@ -8,9 +8,9 @@ import fs from 'fs-extra'
 import path from 'path'
 import axios from 'axios'
 
-// node-pty is a native module — load with graceful fallback
-let pty: typeof import('node-pty') | null = null
-try { pty = require('node-pty') } catch { /* terminal falls back gracefully */ }
+// node-pty-prebuilt-multiarch ships prebuilt binaries — no compilation needed
+let pty: typeof import('node-pty-prebuilt-multiarch') | null = null
+try { pty = require('node-pty-prebuilt-multiarch') } catch { /* terminal falls back gracefully */ }
 
 const MCP_PATH      = path.join(os.homedir(), '.mentis', 'mcp.json')
 const SETTINGS_PATH = path.join(os.homedir(), '.mentis', 'settings.json')
@@ -19,7 +19,7 @@ let mainWindow: BrowserWindow | null = null
 const engine = new HeadlessEngine()
 
 // ── PTY sessions ──────────────────────────────────────────────────────────────
-const ptySessions = new Map<string, import('node-pty').IPty>()
+const ptySessions = new Map<string, import('node-pty-prebuilt-multiarch').IPty>()
 let ptyCounter = 0
 
 function createWindow(): void {
