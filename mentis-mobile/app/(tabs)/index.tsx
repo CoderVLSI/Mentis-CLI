@@ -160,7 +160,8 @@ export default function ChatScreen() {
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
       >
         {/* Tool cards (pending approvals at top) */}
         {Array.from(chat.tools.values()).filter(t => t.needsApproval && t.status === 'pending').map(t => (

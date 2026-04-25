@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import {
-  FlatList, Keyboard, Platform, StyleSheet,
+  FlatList, Keyboard, StyleSheet,
   Text, TextInput, TouchableOpacity, View,
 } from 'react-native'
 import { C } from '../constants/theme'
@@ -104,7 +104,7 @@ const styles = StyleSheet.create({
   suggestionRow:  { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 10 },
   suggestionCmd:  { fontFamily: 'Courier New', fontSize: 13, color: C.accentL, width: 70 },
   suggestionDesc: { fontSize: 12, color: C.muted2 },
-  container:      { flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 12, paddingTop: 8, paddingBottom: Platform.OS === 'ios' ? 24 : 12 },
+  container:      { flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 10 },
   input:          { flex: 1, backgroundColor: C.panel2, borderWidth: 1, borderColor: C.border2, borderRadius: 14, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 10, color: C.text, fontSize: 14, maxHeight: 140, lineHeight: 20 },
   btn:            { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', marginBottom: 1 },
   sendBtn:        { backgroundColor: C.accent },
