@@ -2,14 +2,15 @@ import { useState, useMemo, useEffect } from 'react'
 import { SessionInfo, SessionMeta, McpServer, HookEntry } from '../types'
 
 interface Props {
-  session:       SessionInfo
-  sessions:      SessionMeta[]
-  onNew:         () => void
-  onSwitch:      (id: string) => void
-  onDelete:      (id: string) => void
-  onPickFolder:  () => void
-  onToggleMode:  () => void
-  onClear:       () => void
+  session:        SessionInfo
+  sessions:       SessionMeta[]
+  onNew:          () => void
+  onSwitch:       (id: string) => void
+  onDelete:       (id: string) => void
+  onPickFolder:   () => void
+  onToggleMode:   () => void
+  onClear:        () => void
+  onOpenSettings: () => void
 }
 
 type Panel = 'sessions' | 'search' | 'mcp' | 'hooks'
@@ -34,7 +35,7 @@ function groupSessions(sessions: SessionMeta[]) {
   return g
 }
 
-export default function Sidebar({ session, sessions, onNew, onSwitch, onDelete, onPickFolder, onToggleMode, onClear }: Props) {
+export default function Sidebar({ session, sessions, onNew, onSwitch, onDelete, onPickFolder, onToggleMode, onClear, onOpenSettings }: Props) {
   const [panel, setPanel]         = useState<Panel>('sessions')
 
   const [hoverId, setHoverId]     = useState<string | null>(null)
@@ -155,7 +156,7 @@ export default function Sidebar({ session, sessions, onNew, onSwitch, onDelete, 
           <button onClick={onClear} className="flex items-center gap-1.5 flex-1 px-2 py-1.5 rounded-lg text-[11px] text-red-400/60 hover:text-red-400 hover:bg-red-900/10 transition-colors">
             <TrashIcon /> Clear
           </button>
-          <button className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] text-muted hover:text-[#ccc] hover:bg-white/[0.03] transition-colors">
+          <button onClick={onOpenSettings} className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] text-muted hover:text-[#ccc] hover:bg-white/[0.03] transition-colors">
             <SettingsIcon /> Settings
           </button>
         </div>

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ChatMessage, FeedItem, ToolEvent, ToolSummaryMessage } from '../types'
@@ -102,16 +102,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
                   const match = /language-(\w+)/.exec(className || '')
                   const isBlock = !!match
                   return isBlock ? (
-                    <div className="relative my-2">
-                      {match && (
-                        <div className="flex items-center justify-between bg-[#0a0a0a] px-3 py-1 rounded-t border border-b-0 border-[#2a2a2a]">
-                          <span className="text-[10px] text-muted font-mono uppercase">{match[1]}</span>
-                        </div>
-                      )}
-                      <pre className="!mt-0 !rounded-t-none border-t-0">
-                        <code className={className} {...props}>{children}</code>
-                      </pre>
-                    </div>
+                    <CodeBlock lang={match?.[1]} className={className} {...props}>{children}</CodeBlock>
                   ) : (
                     <code className={className} {...props}>{children}</code>
                   )
@@ -167,3 +158,57 @@ function EmptyState() {
     </div>
   )
 }
+
+// ── Code block with copy button ────────────────────────────────────────────────
+
+function CodeBlock({ lang, children, className, ...props }: {
+  lang?: string; children?: React.ReactNode; className?: string; [k: string]: unknown
+}) {
+  const [copied, setCopied] = useState(false)
+
+  const copy = () => {
+    const text = extractText(children)
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1800)
+    })
+  }
+
+  return (
+    <div className="relative my-2 group">
+      <div className="flex items-center justify-between bg-[#0a0a0a] px-3 py-1 rounded-t border border-b-0 border-[#2a2a2a]">
+        <span className="text-[10px] text-muted font-mono uppercase">{lang || 'code'}</span>
+        <button
+          onClick={copy}
+          className="text-[10px] text-muted hover:text-[#ccc] transition-colors flex items-center gap-1 opacity-0 group-hover:opacity-100"
+          title="Copy code"
+        >
+          {copied ? (<><CheckIcon /> Copied</>) : (<><CopyIcon /> Copy</>)}
+        </button>
+      </div>
+      <pre className="!mt-0 !rounded-t-none border-t-0">
+        <code className={className} {...props}>{children}</code>
+      </pre>
+    </div>
+  )
+}
+
+function extractText(node: React.ReactNode): string {
+  if (typeof node === 'string') return node
+  if (typeof node === 'number') return String(node)
+  if (Array.isArray(node))     return node.map(extractText).join('')
+  if (node && typeof node === 'object' && 'props' in (node as object))
+    return extractText((node as React.ReactElement).props.children)
+  return ''
+}
+
+const CopyIcon = () => (
+  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+  </svg>
+)
+const CheckIcon = () => (
+  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+    <polyline points="20 6 9 17 4 12"/>
+  </svg>
+)

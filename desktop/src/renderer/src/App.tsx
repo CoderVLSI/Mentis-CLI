@@ -122,13 +122,73 @@ export default function App() {
     return () => off.forEach(fn => fn())
   }, [])
 
+  // ── Slash command handler ──────────────────────────────────────────────────
+  const sysMsg = (content: string) =>
+    setFeed(prev => [...prev, { id: uid(), role: 'assistant' as const, content, timestamp: Date.now() }])
+
+  const handleSlash = useCallback(async (cmd: string): Promise<boolean> => {
+    const c = cmd.trim().toLowerCase()
+
+    if (c === '/clear') {
+      await clearChat()
+      return true
+    }
+    if (c === '/plan' || c === '/build') {
+      const next = c === '/plan' ? 'PLAN' : 'BUILD'
+      await window.mentis.setMode(next)
+      setSession(prev => ({ ...prev, mode: next }))
+      sysMsg(`Switched to **${next} MODE**`)
+      return true
+    }
+    if (c === '/mode') {
+      const next = session.mode === 'PLAN' ? 'BUILD' : 'PLAN'
+      await window.mentis.setMode(next)
+      setSession(prev => ({ ...prev, mode: next }))
+      sysMsg(`Switched to **${next} MODE**`)
+      return true
+    }
+    if (c === '/status') {
+      const s = await window.mentis.getSession()
+      sysMsg(
+        `**Session status**\n\n` +
+        `- Mode: \`${s.mode}\`\n` +
+        `- Session: \`${s.sessionId || 'new'}\`\n` +
+        `- Messages: ${s.messageCount}\n` +
+        `- Working dir: \`${s.cwd || 'not set'}\`\n` +
+        `- Model: \`${model}\`\n` +
+        `- Provider: \`${provider}\``
+      )
+      return true
+    }
+    if (c === '/help') {
+      sysMsg(
+        `**Available commands**\n\n` +
+        `| Command | Description |\n` +
+        `|---------|-------------|\n` +
+        `| \`/plan\` | Switch to PLAN mode — design before building |\n` +
+        `| \`/build\` | Switch to BUILD mode — execute the plan |\n` +
+        `| \`/mode\` | Toggle between PLAN and BUILD |\n` +
+        `| \`/status\` | Show session info |\n` +
+        `| \`/clear\` | Clear chat history |\n` +
+        `| \`/help\` | Show this message |`
+      )
+      return true
+    }
+    return false
+  }, [session.mode, model, provider, clearChat])
+
   // ── Actions ────────────────────────────────────────────────────────────────
   const send = useCallback(async (text: string) => {
-    if (!text.trim() || streaming) return
-    setFeed(prev => [...prev, { id: uid(), role: 'user', content: text.trim(), timestamp: Date.now() }])
+    const t = text.trim()
+    if (!t || streaming) return
+    if (t.startsWith('/')) {
+      const handled = await handleSlash(t)
+      if (handled) return
+    }
+    setFeed(prev => [...prev, { id: uid(), role: 'user', content: t, timestamp: Date.now() }])
     setThinking(true)
-    await window.mentis.sendMessage(text.trim())
-  }, [streaming])
+    await window.mentis.sendMessage(t)
+  }, [streaming, handleSlash])
 
   const cancel = useCallback(() => {
     window.mentis.cancelChat(); setStreaming(false); setThinking(false)
@@ -271,6 +331,7 @@ export default function App() {
           onPickFolder={pickFolder}
           onToggleMode={toggleMode}
           onClear={clearChat}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
         <div className="flex flex-col flex-1 overflow-hidden">
           <ChatHeader
