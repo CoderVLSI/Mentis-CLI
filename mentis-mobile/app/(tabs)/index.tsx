@@ -3,14 +3,16 @@ import {
   Alert, FlatList, KeyboardAvoidingView, Platform,
   SafeAreaView, Share, StyleSheet, Text, TouchableOpacity, View,
 } from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
 import { useChat, useSettings, Message, Mode } from '../../store'
 import { streamAnthropicChat } from '../../services/anthropicClient'
-import { streamChat } from '../../services/mentisClient'
+import { streamChat, newSession } from '../../services/mentisClient'
 import ChatBubble from '../../components/ChatBubble'
 import ChatInput from '../../components/ChatInput'
 import ThinkingDot from '../../components/ThinkingDot'
 import ToolCard from '../../components/ToolCard'
 import ModelPicker from '../../components/ModelPicker'
+import DrawerNav from '../../components/DrawerNav'
 import { C } from '../../constants/theme'
 
 export default function ChatScreen() {
@@ -20,7 +22,18 @@ export default function ChatScreen() {
   const listRef  = useRef<FlatList>(null)
   const [error, setError]           = useState<string | null>(null)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
+  const [drawerOpen, setDrawerOpen]           = useState(false)
   const pendingId = useRef<string | null>(null)
+
+  const startNewChat = useCallback(async () => {
+    chat.clearChat()
+    if (settings.syncMode === 'desktop') {
+      try {
+        const { id } = await newSession(settings.desktopHost)
+        chat.setActiveSession(id)
+      } catch { /* ignore — chat already cleared */ }
+    }
+  }, [chat, settings])
 
   const scrollToEnd = useCallback(() => {
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 60)
@@ -109,6 +122,13 @@ export default function ChatScreen() {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
+          <TouchableOpacity
+            style={styles.hamburger}
+            onPress={() => setDrawerOpen(true)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="menu" size={20} color={C.muted2} />
+          </TouchableOpacity>
           <View style={styles.logo}><Text style={styles.logoText}>M</Text></View>
           <Text style={styles.headerTitle}>Mentis</Text>
         </View>
@@ -198,6 +218,12 @@ export default function ChatScreen() {
       </KeyboardAvoidingView>
 
       <ModelPicker visible={modelPickerOpen} onClose={() => setModelPickerOpen(false)} />
+
+      <DrawerNav
+        visible={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        onNewChat={startNewChat}
+      />
     </SafeAreaView>
   )
 }
@@ -221,6 +247,7 @@ const styles = StyleSheet.create({
   root:         { flex: 1, backgroundColor: C.bg },
   header:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.panel },
   headerLeft:   { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  hamburger:    { width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
   logo:         { width: 26, height: 26, borderRadius: 7, backgroundColor: C.accent + '33', alignItems: 'center', justifyContent: 'center' },
   logoText:     { fontSize: 12, fontWeight: '800', color: C.accentL },
   headerTitle:  { fontSize: 15, fontWeight: '700', color: C.text },
