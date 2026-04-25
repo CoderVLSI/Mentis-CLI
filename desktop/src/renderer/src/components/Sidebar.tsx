@@ -11,7 +11,6 @@ interface Props {
   onToggleMode:   () => void
   onClear:        () => void
   onOpenSettings: () => void
-  width?:         number
 }
 
 type Panel = 'sessions' | 'search' | 'mcp' | 'hooks'
@@ -36,7 +35,7 @@ function groupSessions(sessions: SessionMeta[]) {
   return g
 }
 
-export default function Sidebar({ session, sessions, onNew, onSwitch, onDelete, onPickFolder, onToggleMode, onClear, onOpenSettings, width }: Props) {
+export default function Sidebar({ session, sessions, onNew, onSwitch, onDelete, onPickFolder, onToggleMode, onClear, onOpenSettings }: Props) {
   const [panel, setPanel]         = useState<Panel>('sessions')
 
   const [hoverId, setHoverId]     = useState<string | null>(null)
@@ -68,7 +67,7 @@ export default function Sidebar({ session, sessions, onNew, onSwitch, onDelete, 
   )
 
   return (
-    <aside className="flex flex-col bg-[#0a0a0a] border-r border-border shrink-0 overflow-hidden" style={{ width: width ?? 224 }}>
+    <aside className="flex flex-col w-56 bg-[#0a0a0a] border-r border-border shrink-0 overflow-hidden">
       {/* Logo */}
       <div className="flex items-center gap-2 px-3 py-3 border-b border-border">
         <div className="w-5 h-5 rounded bg-accent/20 flex items-center justify-center">

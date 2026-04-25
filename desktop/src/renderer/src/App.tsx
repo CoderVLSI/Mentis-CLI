@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { ChatMessage, FeedItem, SessionInfo, SessionMeta, ToolEvent, ToolSummaryMessage } from './types'
 import Sidebar from './components/Sidebar'
 import ChatPane from './components/ChatPane'
@@ -24,9 +24,7 @@ export default function App() {
   const [panelVisible, setPanelVisible]   = useState(false)
   const [panelTab, setPanelTab]           = useState<PanelTab>('terminal')
   const [panelHeight, setPanelHeight]     = useState(280)
-  const [sidebarWidth, setSidebarWidth]   = useState(224)
   const pendingMsgId                      = useRef<string | null>(null)
-  const sidebarDragRef = useRef<{ startX: number; startW: number } | null>(null)
 
   // ── Bootstrap ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -276,21 +274,6 @@ export default function App() {
     setModelState(pCfg.model || (p === 'anthropic' ? 'claude-sonnet-4-6' : 'llama3'))
   }, [])
 
-  const onSidebarDragStart = useCallback((e: React.MouseEvent) => {
-    sidebarDragRef.current = { startX: e.clientX, startW: sidebarWidth }
-    const onMove = (ev: MouseEvent) => {
-      if (!sidebarDragRef.current) return
-      setSidebarWidth(Math.max(160, Math.min(400, sidebarDragRef.current.startW + ev.clientX - sidebarDragRef.current.startX)))
-    }
-    const onUp = () => {
-      sidebarDragRef.current = null
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup',   onUp)
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup',   onUp)
-  }, [sidebarWidth])
-
   // Panel toggles — Ctrl+` cycles terminal, Ctrl+Shift+` cycles browser
   const toggleTerminal = useCallback(() => {
     if (panelVisible && panelTab === 'terminal') { setPanelVisible(false) }
@@ -349,11 +332,6 @@ export default function App() {
           onToggleMode={toggleMode}
           onClear={clearChat}
           onOpenSettings={() => setSettingsOpen(true)}
-          width={sidebarWidth}
-        />
-        <div
-          className="w-[3px] bg-transparent hover:bg-accent/40 cursor-col-resize transition-colors shrink-0 z-10"
-          onMouseDown={onSidebarDragStart}
         />
         <div className="flex flex-col flex-1 overflow-hidden">
           <ChatHeader
