@@ -7,11 +7,19 @@ import fs from 'fs-extra'
 import path from 'path'
 import axios from 'axios'
 
+// node-pty is a native module — load with graceful fallback
+let pty: typeof import('node-pty') | null = null
+try { pty = require('node-pty') } catch { /* terminal falls back gracefully */ }
+
 const MCP_PATH      = path.join(os.homedir(), '.mentis', 'mcp.json')
 const SETTINGS_PATH = path.join(os.homedir(), '.mentis', 'settings.json')
 
 let mainWindow: BrowserWindow | null = null
 const engine = new HeadlessEngine()
+
+// ── PTY sessions ──────────────────────────────────────────────────────────────
+const ptySessions = new Map<string, import('node-pty').IPty>()
+let ptyCounter = 0
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -19,7 +27,12 @@ function createWindow(): void {
     show: false, frame: false, titleBarStyle: 'hidden',
     backgroundColor: '#0d0d0d',
     icon: join(__dirname, '../../resources/icon.png'),
-    webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false, contextIsolation: true }
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false,
+      contextIsolation: true,
+      webviewTag: true,        // enable <webview> for in-app browser
+    }
   })
   mainWindow.on('ready-to-show', () => mainWindow!.show())
   mainWindow.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' } })
@@ -54,7 +67,10 @@ app.whenReady().then(() => {
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 })
 
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
+app.on('window-all-closed', () => {
+  ptySessions.forEach(p => { try { p.kill() } catch {} })
+  if (process.platform !== 'darwin') app.quit()
+})
 
 // ── Chat ──────────────────────────────────────────────────────────────────────
 ipcMain.handle('chat:send',    async (_e, msg: string) => { engine.chat(msg); return { ok: true } })
@@ -82,7 +98,6 @@ ipcMain.handle('config:get', () => loadConfig())
 
 ipcMain.handle('config:set-model', (_e, model: string) => {
   const cfg      = loadConfig()
-  // Write to ~/.mentisrc CLI format: cfg[provider].model
   const provider = (cfg.defaultProvider as string) || 'ollama'
   const p        = (cfg[provider] as Record<string, string>) || {}
   p.model        = model
@@ -113,9 +128,8 @@ ipcMain.handle('models:list', async () => {
     return ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001']
   }
 
-  // For Ollama (and other OpenAI-compatible), try /api/tags then /v1/models
-  const rawBase = (p.baseUrl || 'http://localhost:11434/v1').replace(/\/$/, '')
-  const ollamaBase = rawBase.replace(/\/v1$/, '')  // strip /v1 to get Ollama root
+  const rawBase    = (p.baseUrl || 'http://localhost:11434/v1').replace(/\/$/, '')
+  const ollamaBase = rawBase.replace(/\/v1$/, '')
 
   try {
     const res = await axios.get(`${ollamaBase}/api/tags`, { timeout: 3000 })
@@ -130,7 +144,7 @@ ipcMain.handle('models:list', async () => {
     if (data.length) return data.map(m => m.id)
   } catch {}
 
-  return []  // empty = let UI show fallback list
+  return []
 })
 
 // ── MCP + Hooks ───────────────────────────────────────────────────────────────
@@ -153,3 +167,52 @@ ipcMain.handle('window:pick-folder', async () => {
 ipcMain.handle('window:minimize', () => mainWindow?.minimize())
 ipcMain.handle('window:maximize', () => { if (mainWindow?.isMaximized()) mainWindow.unmaximize(); else mainWindow?.maximize() })
 ipcMain.handle('window:close',    () => mainWindow?.close())
+
+// ── Terminal (node-pty) ───────────────────────────────────────────────────────
+ipcMain.handle('terminal:create', (_e, cols: number, rows: number) => {
+  if (!pty) return { ok: false, error: 'node-pty unavailable' }
+
+  const id    = String(++ptyCounter)
+  const shell = process.platform === 'win32'
+    ? (process.env.COMSPEC || 'cmd.exe')
+    : (process.env.SHELL   || '/bin/bash')
+
+  try {
+    const proc = pty.spawn(shell, [], {
+      name: 'xterm-256color',
+      cols, rows,
+      cwd: engine.getCwd() || os.homedir(),
+      env: process.env as Record<string, string>,
+    })
+
+    proc.onData(data => {
+      mainWindow?.webContents.send('engine:terminal:output', { id, data })
+    })
+
+    proc.onExit(({ exitCode }) => {
+      mainWindow?.webContents.send('engine:terminal:exit', { id, code: exitCode })
+      ptySessions.delete(id)
+    })
+
+    ptySessions.set(id, proc)
+    return { ok: true, id }
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  }
+})
+
+ipcMain.handle('terminal:write', (_e, id: string, data: string) => {
+  ptySessions.get(id)?.write(data)
+  return { ok: true }
+})
+
+ipcMain.handle('terminal:resize', (_e, id: string, cols: number, rows: number) => {
+  try { ptySessions.get(id)?.resize(cols, rows) } catch {}
+  return { ok: true }
+})
+
+ipcMain.handle('terminal:kill', (_e, id: string) => {
+  const proc = ptySessions.get(id)
+  if (proc) { try { proc.kill() } catch {} ptySessions.delete(id) }
+  return { ok: true }
+})

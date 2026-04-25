@@ -1,16 +1,21 @@
 import { useState, useEffect, useRef } from 'react'
+import { PanelTab } from './BottomPanel'
 
 interface Props {
-  onMinimize:     () => void
-  onMaximize:     () => void
-  onClose:        () => void
-  onNewChat:      () => void
-  onPickFolder:   () => void
-  onExportChat:   () => void
-  onToggleMode:   () => void
-  onClearChat:    () => void
-  onOpenSettings: () => void
-  mode:           'PLAN' | 'BUILD'
+  onMinimize:       () => void
+  onMaximize:       () => void
+  onClose:          () => void
+  onNewChat:        () => void
+  onPickFolder:     () => void
+  onExportChat:     () => void
+  onToggleMode:     () => void
+  onClearChat:      () => void
+  onOpenSettings:   () => void
+  onToggleTerminal: () => void
+  onToggleBrowser:  () => void
+  mode:             'PLAN' | 'BUILD'
+  panelVisible:     boolean
+  panelTab:         PanelTab
 }
 
 type MenuItem =
@@ -26,7 +31,8 @@ export default function TitleBar(props: Props) {
 // ── Shared menu bar ────────────────────────────────────────────────────────────
 
 function useMenus(props: Props) {
-  const { onNewChat, onPickFolder, onExportChat, onToggleMode, onClearChat, mode } = props
+  const { onNewChat, onPickFolder, onExportChat, onToggleMode, onClearChat, mode,
+          onToggleTerminal, onToggleBrowser, panelVisible, panelTab } = props
 
   const fileMenu: MenuItem[] = [
     { type: 'item', label: 'New Chat',      shortcut: 'Ctrl+N', onClick: onNewChat },
@@ -38,8 +44,11 @@ function useMenus(props: Props) {
   ]
 
   const viewMenu: MenuItem[] = [
-    { type: 'item', label: 'PLAN mode', onClick: () => { if (mode !== 'PLAN') onToggleMode() }, checked: mode === 'PLAN' },
+    { type: 'item', label: 'PLAN mode',  onClick: () => { if (mode !== 'PLAN')  onToggleMode() }, checked: mode === 'PLAN' },
     { type: 'item', label: 'BUILD mode', onClick: () => { if (mode !== 'BUILD') onToggleMode() }, checked: mode === 'BUILD' },
+    { type: 'sep' },
+    { type: 'item', label: 'Terminal', shortcut: 'Ctrl+`',       onClick: onToggleTerminal, checked: panelVisible && panelTab === 'terminal' },
+    { type: 'item', label: 'Browser',  shortcut: 'Ctrl+Shift+`', onClick: onToggleBrowser,  checked: panelVisible && panelTab === 'browser'  },
   ]
 
   const helpMenu: MenuItem[] = [
@@ -54,6 +63,44 @@ function useMenus(props: Props) {
     { label: 'View', items: viewMenu },
     { label: 'Help', items: helpMenu },
   ]
+}
+
+// ── Panel toggle icon buttons ──────────────────────────────────────────────────
+
+function PanelIcons({ props }: { props: Props }) {
+  const { onToggleTerminal, onToggleBrowser, panelVisible, panelTab } = props
+  return (
+    <div className="flex items-center no-drag">
+      <button
+        onClick={onToggleTerminal}
+        title="Terminal  (Ctrl+`)"
+        className={`p-1.5 rounded transition-colors ${
+          panelVisible && panelTab === 'terminal'
+            ? 'text-accent bg-accent/10'
+            : 'text-muted hover:text-[#ccc] hover:bg-white/[0.05]'
+        }`}
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+        </svg>
+      </button>
+      <button
+        onClick={onToggleBrowser}
+        title="Browser  (Ctrl+Shift+`)"
+        className={`p-1.5 rounded transition-colors ${
+          panelVisible && panelTab === 'browser'
+            ? 'text-accent bg-accent/10'
+            : 'text-muted hover:text-[#ccc] hover:bg-white/[0.05]'
+        }`}
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <rect x="2" y="3" width="20" height="18" rx="2"/>
+          <line x1="2" y1="9" x2="22" y2="9"/>
+          <line x1="8" y1="3" x2="8" y2="9"/>
+        </svg>
+      </button>
+    </div>
+  )
 }
 
 // ── Drop-down menu component ───────────────────────────────────────────────────
@@ -155,6 +202,9 @@ function MacTitleBar(props: Props) {
 
       {/* Drag fill */}
       <div className="flex-1" />
+
+      {/* Panel toggles */}
+      <PanelIcons props={props} />
     </div>
   )
 }
@@ -180,6 +230,9 @@ function WinTitleBar(props: Props) {
 
       {/* Drag fill */}
       <div className="flex-1" />
+
+      {/* Panel toggles */}
+      <PanelIcons props={props} />
 
       {/* Window controls */}
       <div className="flex h-full shrink-0 no-drag">

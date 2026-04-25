@@ -56,6 +56,21 @@ export interface HookEntry {
   blocking?: boolean
 }
 
+// Webview element interface for in-app browser
+export interface WebviewElement extends HTMLElement {
+  src: string
+  goBack:     () => void
+  goForward:  () => void
+  reload:     () => void
+  stop:       () => void
+  loadURL:    (url: string) => Promise<void>
+  getURL:     () => string
+  getTitle:   () => string
+  canGoBack:    () => boolean
+  canGoForward: () => boolean
+  isLoading:    () => boolean
+}
+
 declare global {
   interface Window {
     mentis: {
@@ -102,8 +117,16 @@ declare global {
       // Platform
       platform: string
 
+      // Terminal
+      terminalCreate: (cols: number, rows: number) => Promise<{ ok: boolean; id?: string; error?: string }>
+      terminalWrite:  (id: string, data: string)   => Promise<{ ok: boolean }>
+      terminalResize: (id: string, cols: number, rows: number) => Promise<{ ok: boolean }>
+      terminalKill:   (id: string)                 => Promise<{ ok: boolean }>
+
       // Events
       on: (channel: string, fn: (...args: unknown[]) => void) => () => void
     }
   }
+
+
 }

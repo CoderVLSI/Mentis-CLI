@@ -6,6 +6,7 @@ import ChatHeader from './components/ChatHeader'
 import InputBar from './components/InputBar'
 import TitleBar from './components/TitleBar'
 import SettingsModal from './components/SettingsModal'
+import BottomPanel, { PanelTab } from './components/BottomPanel'
 
 let _id = 0
 const uid = () => String(++_id)
@@ -19,8 +20,11 @@ export default function App() {
   const [thinking, setThinking]     = useState(false)
   const [model, setModelState]      = useState('llama3')
   const [provider, setProviderState] = useState('ollama')
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const pendingMsgId                = useRef<string | null>(null)
+  const [settingsOpen, setSettingsOpen]   = useState(false)
+  const [panelVisible, setPanelVisible]   = useState(false)
+  const [panelTab, setPanelTab]           = useState<PanelTab>('terminal')
+  const [panelHeight, setPanelHeight]     = useState(280)
+  const pendingMsgId                      = useRef<string | null>(null)
 
   // ── Bootstrap ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -210,6 +214,26 @@ export default function App() {
     setModelState(pCfg.model || (p === 'anthropic' ? 'claude-sonnet-4-6' : 'llama3'))
   }, [])
 
+  // Panel toggles — Ctrl+` cycles terminal, Ctrl+Shift+` cycles browser
+  const toggleTerminal = useCallback(() => {
+    if (panelVisible && panelTab === 'terminal') { setPanelVisible(false) }
+    else { setPanelVisible(true); setPanelTab('terminal') }
+  }, [panelVisible, panelTab])
+
+  const toggleBrowser = useCallback(() => {
+    if (panelVisible && panelTab === 'browser') { setPanelVisible(false) }
+    else { setPanelVisible(true); setPanelTab('browser') }
+  }, [panelVisible, panelTab])
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === '`' && !e.shiftKey) { e.preventDefault(); toggleTerminal() }
+      if (e.ctrlKey && e.key === '`' &&  e.shiftKey) { e.preventDefault(); toggleBrowser() }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [toggleTerminal, toggleBrowser])
+
   const onSettingsSaved = useCallback(async () => {
     const cfg  = await window.mentis.getConfig()
     const p    = (cfg.defaultProvider as string) || 'ollama'
@@ -231,7 +255,11 @@ export default function App() {
         onToggleMode={toggleMode}
         onClearChat={clearChat}
         onOpenSettings={() => setSettingsOpen(true)}
+        onToggleTerminal={toggleTerminal}
+        onToggleBrowser={toggleBrowser}
         mode={session.mode}
+        panelVisible={panelVisible}
+        panelTab={panelTab}
       />
       <div className="flex flex-1 overflow-hidden">
         <Sidebar
@@ -254,6 +282,14 @@ export default function App() {
             onClear={clearChat}
           />
           <ChatPane feed={feed} tools={tools} thinking={thinking} streaming={streaming} onApprove={approve} />
+          <BottomPanel
+            visible={panelVisible}
+            tab={panelTab}
+            height={panelHeight}
+            onTabChange={setPanelTab}
+            onHeightChange={setPanelHeight}
+            onClose={() => setPanelVisible(false)}
+          />
           <InputBar
             disabled={streaming || thinking}
             streaming={streaming || thinking}

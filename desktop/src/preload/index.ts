@@ -45,6 +45,12 @@ contextBridge.exposeInMainWorld('mentis', {
   // Platform
   platform: process.platform,
 
+  // Terminal
+  terminalCreate: (cols: number, rows: number) => ipcRenderer.invoke('terminal:create', cols, rows),
+  terminalWrite:  (id: string, data: string)   => ipcRenderer.invoke('terminal:write', id, data),
+  terminalResize: (id: string, cols: number, rows: number) => ipcRenderer.invoke('terminal:resize', id, cols, rows),
+  terminalKill:   (id: string)                 => ipcRenderer.invoke('terminal:kill', id),
+
   // Engine event subscriptions
   on: (channel: string, fn: (...args: unknown[]) => void) => {
     const listener = (_e: Electron.IpcRendererEvent, ...args: unknown[]) => fn(...args)

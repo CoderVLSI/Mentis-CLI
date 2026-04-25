@@ -29,6 +29,11 @@ html, body, #root {
 ::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #3a3a3a; }
 
+/* xterm.js — make terminal fill its container */
+.xterm { height: 100%; }
+.xterm-screen { height: 100% !important; }
+.xterm-viewport { overflow-y: hidden !important; }
+
 /* Drag region for frameless window */
 .titlebar { -webkit-app-region: drag; }
 .titlebar button { -webkit-app-region: no-drag; }
