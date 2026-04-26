@@ -139,7 +139,7 @@ const CLOUD_URLS: Record<string, string> = {
 const CLOUD_DEFAULT_MODELS: Record<string, string> = {
   anthropic: 'claude-sonnet-4-6',
   openai:    'gpt-5.5',
-  gemini:    'gemini-2.5-pro',
+  gemini:    'gemini-2.5-flash',
   grok:      'grok-4.20',
   kimi:      'kimi-k2.6',
   glm:       'glm-5.1',
@@ -406,8 +406,16 @@ export class HeadlessEngine extends EventEmitter {
       this.emit('sessions_changed', { sessions: loadIndex() })
 
     } catch (e: unknown) {
-      const msg = (e as Error).message || ''
-      this.emit('error', { message: (msg.includes('aborted') || msg.includes('canceled')) ? 'Cancelled.' : (msg || 'Unknown error') })
+      const axiosErr = e as { response?: { status?: number; data?: unknown }; message?: string }
+      const status   = axiosErr.response?.status
+      const body     = axiosErr.response?.data
+      const msg      = axiosErr.message || ''
+      if (msg.includes('aborted') || msg.includes('canceled')) {
+        this.emit('error', { message: 'Cancelled.' })
+      } else {
+        const detail = body ? ` — ${JSON.stringify(body).slice(0, 300)}` : ''
+        this.emit('error', { message: `${status ? `HTTP ${status}` : msg}${detail}` })
+      }
     }
   }
 }
