@@ -139,7 +139,7 @@ const CLOUD_URLS: Record<string, string> = {
 const CLOUD_DEFAULT_MODELS: Record<string, string> = {
   anthropic: 'claude-sonnet-4-6',
   openai:    'gpt-5.5',
-  gemini:    'gemini-3.1-pro',
+  gemini:    'gemini-2.5-pro',
   grok:      'grok-4.20',
   kimi:      'kimi-k2.6',
   glm:       'glm-5.1',

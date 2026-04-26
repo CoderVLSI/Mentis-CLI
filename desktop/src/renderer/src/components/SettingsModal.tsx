@@ -16,27 +16,27 @@ const PROVIDERS = [
   {
     id: 'openai', name: 'OpenAI', badge: 'GPT', color: 'text-green-400',
     placeholder: 'sk-…', hasApiKey: true,
-    models: ['gpt-5.5', 'gpt-5.5-pro', 'gpt-5.4-mini', 'gpt-5.4-nano', 'gpt-4o', 'o3'],
+    models: ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-4.1', 'gpt-4o', 'o3'],
   },
   {
     id: 'gemini', name: 'Gemini', badge: 'Google', color: 'text-blue-400',
     placeholder: 'AIzaSy…', hasApiKey: true,
-    models: ['gemini-3.1-pro', 'gemini-3.1-flash', 'gemini-3-flash', 'gemini-2.5-pro'],
+    models: ['gemini-3.1-pro-preview', 'gemini-3-pro-preview', 'gemini-2.5-pro', 'gemini-2.5-flash'],
   },
   {
     id: 'grok', name: 'Grok', badge: 'xAI', color: 'text-neutral-200',
     placeholder: 'xai-…', hasApiKey: true,
-    models: ['grok-4.20', 'grok-4.20-reasoning', 'grok-code-fast-1', 'grok-4.1-fast'],
+    models: ['grok-4.20', 'grok-3', 'grok-3-mini', 'grok-2-1212'],
   },
   {
     id: 'kimi', name: 'Kimi', badge: 'Moonshot', color: 'text-cyan-400',
     placeholder: 'sk-…', hasApiKey: true,
-    models: ['kimi-k2.6', 'kimi-k2.5', 'moonshot-v1-128k', 'moonshot-v1-32k'],
+    models: ['kimi-k2.6', 'kimi-k2.5', 'kimi-k2', 'moonshot-v1-128k'],
   },
   {
     id: 'glm', name: 'GLM', badge: 'Zhipu', color: 'text-violet-400',
     placeholder: 'your-api-key', hasApiKey: true,
-    models: ['glm-5.1', 'glm-5', 'glm-5-turbo', 'glm-4.7', 'glm-4.7-flash'],
+    models: ['glm-5.1', 'glm-5', 'glm-4.7', 'glm-4.6', 'glm-4.5'],
   },
   {
     id: 'ollama', name: 'Ollama', badge: 'Local', color: 'text-yellow-400',
