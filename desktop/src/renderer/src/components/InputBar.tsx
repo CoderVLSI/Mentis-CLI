@@ -27,7 +27,7 @@ const PROVIDER_MODELS: Record<string, string[]> = {
   grok:       ['grok-4.20', 'grok-3', 'grok-3-mini', 'grok-2-1212'],
   kimi:       ['kimi-k2.6', 'kimi-k2.5', 'kimi-k2', 'moonshot-v1-128k'],
   glm:        ['glm-5.1', 'glm-5', 'glm-4.7', 'glm-4.6', 'glm-4.5'],
-  openrouter: ['openai/gpt-4o', 'openai/gpt-4.1', 'anthropic/claude-opus-4', 'anthropic/claude-sonnet-4-5', 'google/gemini-2.5-pro', 'meta-llama/llama-4-scout', 'deepseek/deepseek-r2', 'x-ai/grok-3'],
+  // openrouter: omitted → triggers listModels() which fetches free models live
   ollama:     ['llama3', 'llama3.1', 'codellama', 'deepseek-coder', 'mistral', 'phi3', 'gemma2'],
 }
 
@@ -68,10 +68,13 @@ export default function InputBar({ disabled, streaming, model, provider, onSend,
     let cancelled = false
     setModelsLoading(true)
     setModelList([])
+    const fallback = provider === 'openrouter'
+      ? ['google/gemini-2.0-flash-exp:free', 'meta-llama/llama-4-scout:free', 'deepseek/deepseek-r1:free']
+      : OLLAMA_FALLBACK
     window.mentis.listModels().then(list => {
-      if (!cancelled) { setModelList(list.length ? list : OLLAMA_FALLBACK); setModelsLoading(false) }
+      if (!cancelled) { setModelList(list.length ? list : fallback); setModelsLoading(false) }
     }).catch(() => {
-      if (!cancelled) { setModelList(OLLAMA_FALLBACK); setModelsLoading(false) }
+      if (!cancelled) { setModelList(fallback); setModelsLoading(false) }
     })
     return () => { cancelled = true }
   }, [provider])
@@ -188,7 +191,7 @@ export default function InputBar({ disabled, streaming, model, provider, onSend,
               className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-[#111] border border-border hover:border-[#333] text-muted hover:text-[#ccc] transition-colors"
             >
               {modelsLoading
-                ? <span className="opacity-50">detecting…</span>
+                ? <span className="opacity-50">{provider === 'openrouter' ? 'fetching…' : 'detecting…'}</span>
                 : <span className="font-mono max-w-[140px] truncate">{model}</span>
               }
               <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="6 9 12 15 18 9"/></svg>
@@ -201,15 +204,18 @@ export default function InputBar({ disabled, streaming, model, provider, onSend,
                   <span className="text-[10px] text-muted uppercase tracking-wider">
                     {PROVIDER_LABELS[provider] || 'Models'}
                   </span>
-                  {provider === 'ollama' && (
+                  {(provider === 'ollama' || provider === 'openrouter') && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
                         setModelsLoading(true)
+                        const fallback = provider === 'openrouter'
+                          ? ['google/gemini-2.0-flash-exp:free', 'meta-llama/llama-4-scout:free', 'deepseek/deepseek-r1:free']
+                          : OLLAMA_FALLBACK
                         window.mentis.listModels().then(list => {
-                          setModelList(list.length ? list : OLLAMA_FALLBACK)
+                          setModelList(list.length ? list : fallback)
                           setModelsLoading(false)
-                        }).catch(() => { setModelList(OLLAMA_FALLBACK); setModelsLoading(false) })
+                        }).catch(() => { setModelList(fallback); setModelsLoading(false) })
                       }}
                       className="text-[9px] text-muted hover:text-accent transition-colors"
                       title="Refresh model list"

@@ -132,10 +132,23 @@ ipcMain.handle('models:list', async () => {
     gemini:    ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3.1-pro-preview', 'gemini-3-pro-preview'],
     grok:      ['grok-4.20', 'grok-3', 'grok-3-mini', 'grok-2-1212'],
     kimi:      ['kimi-k2.6', 'kimi-k2.5', 'kimi-k2', 'moonshot-v1-128k'],
-    glm:        ['glm-5.1', 'glm-5', 'glm-4.7', 'glm-4.6', 'glm-4.5'],
-    openrouter: ['openai/gpt-4o', 'openai/gpt-4.1', 'anthropic/claude-opus-4', 'anthropic/claude-sonnet-4-5', 'google/gemini-2.5-pro', 'meta-llama/llama-4-scout', 'deepseek/deepseek-r2', 'x-ai/grok-3'],
+    glm:       ['glm-5.1', 'glm-5', 'glm-4.7', 'glm-4.6', 'glm-4.5'],
   }
   if (STATIC_MODELS[provider]) return STATIC_MODELS[provider]
+
+  // OpenRouter: fetch free models from public API
+  if (provider === 'openrouter') {
+    const OR_FALLBACK = ['google/gemini-2.0-flash-exp:free', 'meta-llama/llama-4-scout:free', 'deepseek/deepseek-r1:free', 'mistralai/mistral-7b-instruct:free', 'microsoft/phi-4:free', 'qwen/qwen3-30b-a3b:free']
+    try {
+      const headers: Record<string, string> = { 'HTTP-Referer': 'https://mentis.app', 'X-Title': 'Mentis Desktop' }
+      if (p.apiKey) headers['Authorization'] = `Bearer ${p.apiKey}`
+      const res = await axios.get('https://openrouter.ai/api/v1/models', { timeout: 6000, headers })
+      type ORModel = { id: string; pricing?: { prompt: string; completion: string } }
+      const all = (res.data?.data || []) as ORModel[]
+      const free = all.filter(m => m.pricing?.prompt === '0' && m.pricing?.completion === '0').map(m => m.id).sort()
+      return free.length ? free : OR_FALLBACK
+    } catch { return OR_FALLBACK }
+  }
 
   const rawBase    = (p.baseUrl || 'http://localhost:11434/v1').replace(/\/$/, '')
   const ollamaBase = rawBase.replace(/\/v1$/, '')
