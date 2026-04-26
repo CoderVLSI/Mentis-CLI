@@ -309,6 +309,14 @@ export class HeadlessEngine extends EventEmitter {
     this.abortController = new AbortController()
     const cfg = this.getApiConfig()
 
+    // Check API key before doing anything
+    const needsKey = cfg.provider !== 'ollama'
+    if (needsKey && !cfg.key) {
+      this.emit('message_start', { role: 'assistant' })
+      this.emit('error', { message: `No API key set for ${cfg.provider}. Open Settings → Providers and add your key.` })
+      return
+    }
+
     // Auto-title session from first user message
     const index = loadIndex()
     const meta = index.find(s => s.id === this.currentSessionId)
