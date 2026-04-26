@@ -14,6 +14,7 @@ import ThinkingDot from '../../components/ThinkingDot'
 import ToolCard from '../../components/ToolCard'
 import ModelPicker from '../../components/ModelPicker'
 import DrawerNav from '../../components/DrawerNav'
+import RepoPicker from '../../components/RepoPicker'
 import { C } from '../../constants/theme'
 
 export default function ChatScreen() {
@@ -25,6 +26,7 @@ export default function ChatScreen() {
   const [error, setError]                     = useState<string | null>(null)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const [drawerOpen, setDrawerOpen]           = useState(false)
+  const [repoPickerOpen, setRepoPickerOpen]   = useState(false)
   const pendingId = useRef<string | null>(null)
 
   const startNewChat = useCallback(async () => {
@@ -293,7 +295,14 @@ export default function ChatScreen() {
                 />
           }
           contentContainerStyle={styles.feedContent}
-          ListEmptyComponent={<EmptyState mode={chat.mode} syncMode={settings.syncMode} githubRepo={settings.githubRepo} />}
+          ListEmptyComponent={
+            <EmptyState
+              mode={chat.mode}
+              syncMode={settings.syncMode}
+              githubRepo={settings.githubRepo}
+              onSuggest={send}
+            />
+          }
           onContentSizeChange={scrollToEnd}
           maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         />
@@ -305,10 +314,17 @@ export default function ChatScreen() {
           </TouchableOpacity>
         )}
 
-        <ChatInput onSend={send} onCancel={cancel} streaming={chat.streaming || chat.thinking} />
+        <ChatInput
+          onSend={send}
+          onCancel={cancel}
+          streaming={chat.streaming || chat.thinking}
+          githubRepo={settings.githubRepo || undefined}
+          onRepoPick={() => setRepoPickerOpen(true)}
+        />
       </KeyboardAvoidingView>
 
       <ModelPicker visible={modelPickerOpen} onClose={() => setModelPickerOpen(false)} />
+      <RepoPicker visible={repoPickerOpen} onClose={() => setRepoPickerOpen(false)} />
 
       <DrawerNav
         visible={drawerOpen}
@@ -319,27 +335,33 @@ export default function ChatScreen() {
   )
 }
 
-function EmptyState({ mode, syncMode, githubRepo }: { mode: Mode; syncMode: string; githubRepo: string }) {
+const SUGGESTIONS = [
+  'Search for TODO comments and fix them',
+  'Create or update a README.md',
+  'Recommend areas to improve the code',
+  'Find and fix any obvious bugs',
+]
+
+function EmptyState({ mode, syncMode, githubRepo, onSuggest }: {
+  mode: Mode; syncMode: string; githubRepo: string; onSuggest: (t: string) => void
+}) {
   return (
     <View style={styles.empty}>
       <Text style={styles.emptyM}>M</Text>
       <Text style={styles.emptyTitle}>Mentis</Text>
       <Text style={styles.emptySub}>
-        {syncMode === 'desktop' ? 'Connected to desktop' : githubRepo ? `⬡ ${githubRepo}` : 'AI coding assistant'}
+        {syncMode === 'desktop'
+          ? 'Connected to desktop'
+          : githubRepo ? `⬡ ${githubRepo}` : 'AI coding assistant'}
       </Text>
-      <View style={styles.emptyHints}>
-        {mode === 'PLAN'
-          ? [
-              '⏸ PLAN mode — analysis only',
-              'Agent reads files and produces a plan',
-              'Tap PLAN to switch to BUILD mode',
-            ].map(h => <Text key={h} style={styles.emptyHint}>{h}</Text>)
-          : [
-              '/plan — plan before coding',
-              '/build — switch to build mode',
-              '/clear — clear history',
-            ].map(h => <Text key={h} style={styles.emptyHint}>{h}</Text>)
-        }
+
+      <Text style={styles.suggestLabel}>Suggestions</Text>
+      <View style={styles.suggestList}>
+        {SUGGESTIONS.map(s => (
+          <TouchableOpacity key={s} style={styles.suggestCard} onPress={() => onSuggest(s)}>
+            <Text style={styles.suggestText}>{s}</Text>
+          </TouchableOpacity>
+        ))}
       </View>
     </View>
   )
@@ -372,6 +394,8 @@ const styles = StyleSheet.create({
   emptyM:       { fontSize: 36, fontWeight: '800', color: C.accent },
   emptyTitle:   { fontSize: 20, fontWeight: '700', color: C.text },
   emptySub:     { fontSize: 13, color: C.muted2, marginBottom: 16 },
-  emptyHints:   { gap: 6, alignItems: 'center' },
-  emptyHint:    { fontSize: 12, color: C.muted, fontFamily: 'Courier New' },
+  suggestLabel: { fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: '600', marginTop: 20, marginBottom: 10, alignSelf: 'flex-start' },
+  suggestList:  { width: '100%', gap: 8 },
+  suggestCard:  { backgroundColor: C.panel, borderWidth: 1, borderColor: C.border2, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 13 },
+  suggestText:  { fontSize: 13, color: C.textDim, lineHeight: 18 },
 })
