@@ -39,6 +39,11 @@ const PROVIDERS = [
     models: ['glm-5.1', 'glm-5', 'glm-4.7', 'glm-4.6', 'glm-4.5'],
   },
   {
+    id: 'openrouter', name: 'OpenRouter', badge: 'Router', color: 'text-pink-400',
+    placeholder: 'sk-or-v1-…', hasApiKey: true,
+    models: ['openai/gpt-4o', 'openai/gpt-4.1', 'anthropic/claude-opus-4', 'anthropic/claude-sonnet-4-5', 'google/gemini-2.5-pro', 'meta-llama/llama-4-scout', 'deepseek/deepseek-r2', 'x-ai/grok-3'],
+  },
+  {
     id: 'ollama', name: 'Ollama', badge: 'Local', color: 'text-yellow-400',
     placeholder: 'http://localhost:11434/v1', hasApiKey: false,
     models: [],

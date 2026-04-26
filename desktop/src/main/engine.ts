@@ -128,21 +128,23 @@ async function executeTool(name: string, args: Record<string, unknown>, cwd: str
 // ── Provider helpers ──────────────────────────────────────────────────────────
 
 const CLOUD_URLS: Record<string, string> = {
-  anthropic: 'https://api.anthropic.com/v1/messages',
-  openai:    'https://api.openai.com/v1/chat/completions',
-  gemini:    'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
-  grok:      'https://api.x.ai/v1/chat/completions',
-  kimi:      'https://api.moonshot.cn/v1/chat/completions',
-  glm:       'https://open.bigmodel.cn/api/paas/v4/chat/completions',
+  anthropic:   'https://api.anthropic.com/v1/messages',
+  openai:      'https://api.openai.com/v1/chat/completions',
+  gemini:      'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+  grok:        'https://api.x.ai/v1/chat/completions',
+  kimi:        'https://api.moonshot.cn/v1/chat/completions',
+  glm:         'https://open.bigmodel.cn/api/paas/v4/chat/completions',
+  openrouter:  'https://openrouter.ai/api/v1/chat/completions',
 }
 
 const CLOUD_DEFAULT_MODELS: Record<string, string> = {
-  anthropic: 'claude-sonnet-4-6',
-  openai:    'gpt-5.5',
-  gemini:    'gemini-2.5-flash',
-  grok:      'grok-4.20',
-  kimi:      'kimi-k2.6',
-  glm:       'glm-5.1',
+  anthropic:  'claude-sonnet-4-6',
+  openai:     'gpt-5.5',
+  gemini:     'gemini-2.5-flash',
+  grok:       'grok-4.20',
+  kimi:       'kimi-k2.6',
+  glm:        'glm-5.1',
+  openrouter: 'openai/gpt-4o',
 }
 
 function toAnthropicTools(tools: typeof TOOLS) {

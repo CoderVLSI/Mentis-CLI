@@ -132,7 +132,8 @@ ipcMain.handle('models:list', async () => {
     gemini:    ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3.1-pro-preview', 'gemini-3-pro-preview'],
     grok:      ['grok-4.20', 'grok-3', 'grok-3-mini', 'grok-2-1212'],
     kimi:      ['kimi-k2.6', 'kimi-k2.5', 'kimi-k2', 'moonshot-v1-128k'],
-    glm:       ['glm-5.1', 'glm-5', 'glm-4.7', 'glm-4.6', 'glm-4.5'],
+    glm:        ['glm-5.1', 'glm-5', 'glm-4.7', 'glm-4.6', 'glm-4.5'],
+    openrouter: ['openai/gpt-4o', 'openai/gpt-4.1', 'anthropic/claude-opus-4', 'anthropic/claude-sonnet-4-5', 'google/gemini-2.5-pro', 'meta-llama/llama-4-scout', 'deepseek/deepseek-r2', 'x-ai/grok-3'],
   }
   if (STATIC_MODELS[provider]) return STATIC_MODELS[provider]
 
@@ -157,7 +158,16 @@ ipcMain.handle('models:list', async () => {
 
 // ── MCP + Hooks ───────────────────────────────────────────────────────────────
 ipcMain.handle('mcp:list', () => {
-  try { return JSON.parse(fs.readFileSync(MCP_PATH, 'utf-8')) } catch { return [] }
+  try {
+    const raw = JSON.parse(fs.readFileSync(MCP_PATH, 'utf-8'))
+    if (Array.isArray(raw)) return raw
+    // Claude / Mentis CLI format: { mcpServers: { name: { command, args, env } } }
+    const servers = raw.mcpServers || raw
+    if (typeof servers === 'object' && !Array.isArray(servers)) {
+      return Object.entries(servers).map(([name, cfg]) => ({ name, ...(cfg as object) }))
+    }
+    return []
+  } catch { return [] }
 })
 
 ipcMain.handle('hooks:list', () => {
