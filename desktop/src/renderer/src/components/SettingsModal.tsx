@@ -60,6 +60,8 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
   const [ollamaModel, setOllamaModel]         = useState('llama3')
   const [detecting, setDetecting]             = useState(false)
   const [detectedModels, setDetectedModels]   = useState<string[]>([])
+  const [serperKey, setSerperKey]             = useState('')
+  const [showSerper, setShowSerper]           = useState(false)
   const [saving, setSaving]                   = useState(false)
   const [saved, setSaved]                     = useState(false)
 
@@ -74,6 +76,8 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
         mods[p.id] = c.model  || p.models[0] || ''
       }
       setApiKeys(keys); setModels(mods)
+      const tools = (cfg.tools as Record<string, string>) || {}
+      setSerperKey(tools.serperKey || '')
       const oll = (cfg.ollama as Record<string, string>) || {}
       setOllamaUrl(oll.baseUrl || 'http://localhost:11434/v1')
       setOllamaModel(oll.model || 'llama3')
@@ -103,6 +107,7 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
       await window.mentis.updateProviderSettings(p.id, { apiKey: apiKeys[p.id] || '', model: models[p.id] || p.models[0] })
     }
     await window.mentis.updateProviderSettings('ollama', { baseUrl: ollamaUrl, model: ollamaModel })
+    await window.mentis.updateProviderSettings('tools', { serperKey })
     setSaving(false); setSaved(true); onSaved()
     setTimeout(() => { setSaved(false); onClose() }, 900)
   }
@@ -152,6 +157,29 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
                       {defaultProvider === p.id && <span className="ml-auto text-accent text-[10px]">✓</span>}
                     </button>
                   ))}
+                </div>
+              </div>
+
+              <SectionTitle>Web Search</SectionTitle>
+              <div className="rounded-xl border border-border bg-[#0d0d0d] p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-[12px] font-medium text-[#ccc]">Serper API Key</div>
+                    <div className="text-[10px] text-muted mt-0.5">Gives the agent real-time Google search — get a free key at serper.dev</div>
+                  </div>
+                </div>
+                <div className="flex gap-1.5">
+                  <input
+                    type={showSerper ? 'text' : 'password'}
+                    value={serperKey}
+                    onChange={e => setSerperKey(e.target.value)}
+                    placeholder="your-serper-api-key"
+                    className="flex-1 min-w-0 bg-surface border border-border rounded-lg px-2.5 py-1.5 text-[11px] text-[#e8e8e8] placeholder-muted/50 focus:outline-none focus:border-accent/40 font-mono"
+                  />
+                  <button onClick={() => setShowSerper(p => !p)}
+                    className="px-2 rounded-lg border border-border text-[10px] text-muted hover:text-[#ccc] transition-colors shrink-0">
+                    {showSerper ? 'Hide' : 'Show'}
+                  </button>
                 </div>
               </div>
             )}

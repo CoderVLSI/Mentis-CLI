@@ -92,11 +92,12 @@ function genId(): string {
 // ── Tools ─────────────────────────────────────────────────────────────────────
 
 const TOOLS = [
-  { type: 'function', function: { name: 'read_file',  description: 'Read a file.',          parameters: { type: 'object', properties: { file_path: { type: 'string' } },                                                                                     required: ['file_path'] } } },
-  { type: 'function', function: { name: 'write_file', description: 'Write to a file.',       parameters: { type: 'object', properties: { file_path: { type: 'string' }, content: { type: 'string' } },                                                        required: ['file_path', 'content'] } } },
-  { type: 'function', function: { name: 'edit_file',  description: 'Replace text in file.',  parameters: { type: 'object', properties: { file_path: { type: 'string' }, old_string: { type: 'string' }, new_string: { type: 'string' } },                     required: ['file_path', 'old_string', 'new_string'] } } },
-  { type: 'function', function: { name: 'list_dir',   description: 'List a directory.',      parameters: { type: 'object', properties: { path: { type: 'string' } },                                                                                          required: ['path'] } } },
-  { type: 'function', function: { name: 'run_shell',  description: 'Run a shell command.',   parameters: { type: 'object', properties: { command: { type: 'string' } },                                                                                       required: ['command'] } } }
+  { type: 'function', function: { name: 'read_file',  description: 'Read a file.',                          parameters: { type: 'object', properties: { file_path: { type: 'string' } },                                                                                                       required: ['file_path'] } } },
+  { type: 'function', function: { name: 'write_file', description: 'Write to a file.',                      parameters: { type: 'object', properties: { file_path: { type: 'string' }, content: { type: 'string' } },                                                                          required: ['file_path', 'content'] } } },
+  { type: 'function', function: { name: 'edit_file',  description: 'Replace text in file.',                 parameters: { type: 'object', properties: { file_path: { type: 'string' }, old_string: { type: 'string' }, new_string: { type: 'string' } },                                       required: ['file_path', 'old_string', 'new_string'] } } },
+  { type: 'function', function: { name: 'list_dir',   description: 'List a directory.',                     parameters: { type: 'object', properties: { path: { type: 'string' } },                                                                                                           required: ['path'] } } },
+  { type: 'function', function: { name: 'run_shell',  description: 'Run a shell command.',                  parameters: { type: 'object', properties: { command: { type: 'string' } },                                                                                                        required: ['command'] } } },
+  { type: 'function', function: { name: 'web_search', description: 'Search the web for current information. Use for news, docs, prices, or anything that may have changed recently.', parameters: { type: 'object', properties: { query: { type: 'string', description: 'Search query' } }, required: ['query'] } } },
 ]
 
 const NEEDS_APPROVAL = new Set(['write_file', 'edit_file', 'run_shell'])
@@ -120,6 +121,19 @@ async function executeTool(name: string, args: Record<string, unknown>, cwd: str
     if (name === 'run_shell') {
       const { execSync } = require('child_process')
       return execSync(args.command as string, { cwd, timeout: 30000, encoding: 'utf-8' })
+    }
+    if (name === 'web_search') {
+      const cfg = loadConfig()
+      const serperKey = ((cfg.tools as Record<string, string>) || {}).serperKey?.trim() || process.env.SERPER_API_KEY || ''
+      if (!serperKey) return 'Error: No Serper API key. Add it in Settings → General → Web Search.'
+      const res = await axios.post('https://google.serper.dev/search',
+        { q: args.query as string, num: 8 },
+        { headers: { 'X-API-KEY': serperKey, 'Content-Type': 'application/json' }, timeout: 10000 }
+      )
+      type SR = { title?: string; link?: string; snippet?: string }
+      const organic = (res.data.organic || []) as SR[]
+      if (!organic.length) return 'No results found.'
+      return organic.map((r, i) => `${i + 1}. ${r.title}\n   ${r.link}\n   ${r.snippet || ''}`).join('\n\n')
     }
     return `Unknown tool: ${name}`
   } catch (e: unknown) { return `Error: ${(e as Error).message}` }

@@ -13,18 +13,19 @@ interface Props {
 }
 
 const TOOL_LABELS: Record<string, string> = {
-  read_file:  'read file',
-  write_file: 'wrote file',
-  edit_file:  'edited file',
-  list_dir:   'listed directory',
-  run_shell:  'ran command',
+  read_file:  'read',
+  write_file: 'write',
+  edit_file:  'edit',
+  list_dir:   'list',
+  run_shell:  'shell',
+  web_search: 'search',
 }
 
 function toolSummaryText(names: string[]): string {
   const counts: Record<string, number> = {}
   for (const n of names) counts[n] = (counts[n] || 0) + 1
   return Object.entries(counts)
-    .map(([n, c]) => c > 1 ? `${TOOL_LABELS[n] || n} ×${c}` : (TOOL_LABELS[n] || n))
+    .map(([n, c]) => `${TOOL_LABELS[n] || n}${c > 1 ? ` ×${c}` : ''}`)
     .join(' · ')
 }
 
@@ -50,7 +51,7 @@ export default function ChatPane({ feed, tools, thinking, onApprove }: Props) {
       })}
 
       {toolList.length > 0 && (
-        <div className="flex flex-col gap-1.5 max-w-[700px] w-full">
+        <div className="flex flex-col gap-1.5 max-w-[680px] w-full pl-9">
           {toolList.map(t => <ToolCallCard key={t.id} tool={t} onApprove={onApprove} />)}
         </div>
       )}
@@ -63,12 +64,13 @@ export default function ChatPane({ feed, tools, thinking, onApprove }: Props) {
 
 function ToolSummaryLine({ names, count }: { names: string[]; count: number }) {
   return (
-    <div className="flex items-center gap-2 py-0.5 fade-in">
-      <div className="flex items-center gap-1.5 text-[11px] text-muted bg-[#111] border border-border rounded-full px-3 py-1">
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-accent/60">
+    <div className="flex items-center gap-2 py-0.5 pl-9 fade-in">
+      <div className="flex items-center gap-1.5 text-[10px] text-muted/70 bg-[#111] border border-border/60 rounded-full px-2.5 py-0.5">
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-accent/50 shrink-0">
           <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
         </svg>
-        <span>{count > 1 ? `Ran ${count} operations` : 'Ran 1 operation'} — {toolSummaryText(names)}</span>
+        <span className="font-mono">{toolSummaryText(names)}</span>
+        {count > 1 && <span className="text-muted/50">({count})</span>}
       </div>
     </div>
   )
