@@ -39,6 +39,9 @@ export interface Settings {
   ollamaUrl:      string
   provider:       'anthropic' | 'openrouter' | 'ollama'
   model:          string
+  githubToken:    string
+  githubRepo:     string    // e.g. "owner/repo"
+  githubBranch:   string    // e.g. "main"
 }
 
 // ── Settings store ────────────────────────────────────────────────────────────
@@ -57,6 +60,9 @@ const DEFAULTS: Settings = {
   ollamaUrl:     'http://localhost:11434/v1',
   provider:      'anthropic',
   model:         'claude-sonnet-4-6',
+  githubToken:   '',
+  githubRepo:    '',
+  githubBranch:  'main',
 }
 
 export const useSettings = create<SettingsState>((set, get) => ({
@@ -69,7 +75,8 @@ export const useSettings = create<SettingsState>((set, get) => ({
       const stored = raw ? JSON.parse(raw) : {}
       const key    = await SecureStore.getItemAsync('mentis:anthropic_key').catch(() => '')
       const orKey  = await SecureStore.getItemAsync('mentis:openrouter_key').catch(() => '')
-      set({ ...DEFAULTS, ...stored, anthropicKey: key ?? '', openrouterKey: orKey ?? '', loaded: true })
+      const ghKey  = await SecureStore.getItemAsync('mentis:github_token').catch(() => '')
+      set({ ...DEFAULTS, ...stored, anthropicKey: key ?? '', openrouterKey: orKey ?? '', githubToken: ghKey ?? '', loaded: true })
     } catch {
       set({ loaded: true })
     }
@@ -78,14 +85,14 @@ export const useSettings = create<SettingsState>((set, get) => ({
   save: async (patch) => {
     const next = { ...get(), ...patch }
     set(next)
-    const { anthropicKey, openrouterKey, loaded, load, save, ...rest } = next
+    const { anthropicKey, openrouterKey, githubToken, loaded, load, save, ...rest } = next
     await AsyncStorage.setItem('mentis:settings', JSON.stringify(rest))
-    if (patch.anthropicKey !== undefined) {
+    if (patch.anthropicKey !== undefined)
       await SecureStore.setItemAsync('mentis:anthropic_key', patch.anthropicKey)
-    }
-    if (patch.openrouterKey !== undefined) {
+    if (patch.openrouterKey !== undefined)
       await SecureStore.setItemAsync('mentis:openrouter_key', patch.openrouterKey)
-    }
+    if (patch.githubToken !== undefined)
+      await SecureStore.setItemAsync('mentis:github_token', patch.githubToken)
   },
 }))
 

@@ -5,7 +5,8 @@ import {
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { useChat, useSettings, Message, Mode } from '../../store'
-import { streamStandaloneChat, StandaloneProvider } from '../../services/anthropicClient'
+import { StandaloneProvider } from '../../services/anthropicClient'
+import { runStandaloneChat, EngineEvent } from '../../services/standaloneEngine'
 import { streamChat, newSession, approveAction, setDesktopMode, SyncEvent } from '../../services/mentisClient'
 import ChatBubble from '../../components/ChatBubble'
 import ChatInput from '../../components/ChatInput'
@@ -18,8 +19,9 @@ import { C } from '../../constants/theme'
 export default function ChatScreen() {
   const chat     = useChat()
   const settings = useSettings()
-  const abortRef = useRef<AbortController | null>(null)
-  const listRef  = useRef<FlatList>(null)
+  const abortRef          = useRef<AbortController | null>(null)
+  const listRef           = useRef<FlatList>(null)
+  const pendingApprovals  = useRef<Map<string, (approved: boolean) => void>>(new Map())
   const [error, setError]                     = useState<string | null>(null)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const [drawerOpen, setDrawerOpen]           = useState(false)
@@ -63,13 +65,18 @@ export default function ChatScreen() {
     }
   }, [chat, settings])
 
-  // ── Tool approval — in desktop mode hits the sync server ──────────────────
+  // ── Tool approval ─────────────────────────────────────────────────────────
   const handleApprove = useCallback(async (id: string, approved: boolean) => {
     const tool = chat.tools.get(id)
     if (!tool) return
     chat.upsertTool({ ...tool, status: approved ? 'approved' : 'denied', needsApproval: false })
+
     if (settings.syncMode === 'desktop') {
       await approveAction(settings.desktopHost, id, approved).catch(() => {})
+    } else {
+      // Resolve the Promise held in the standalone engine loop
+      const resolve = pendingApprovals.current.get(id)
+      if (resolve) { resolve(approved); pendingApprovals.current.delete(id) }
     }
   }, [chat, settings])
 
@@ -142,24 +149,35 @@ export default function ChatScreen() {
         },
       )
     } else {
-      // ── Standalone mode: direct provider API call ──────────────────────
+      // ── Standalone mode: tool-enabled engine with GitHub connector ─────
       abortRef.current = new AbortController()
+      const provider = settings.provider === 'ollama' ? 'anthropic' : settings.provider as StandaloneProvider
+      const apiKey   = provider === 'openrouter' ? settings.openrouterKey : settings.anthropicKey
+
       const history = chat.feed
-        .filter(m => m.content)
-        .map(m => ({ role: m.role, content: m.content })) as Array<{ role: 'user' | 'assistant'; content: string }>
+        .filter(m => m.role === 'user' || m.role === 'assistant')
+        .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }))
 
-      const provider  = settings.provider as StandaloneProvider
-      const apiKey    = provider === 'openrouter' ? settings.openrouterKey : settings.anthropicKey
-
-      await streamStandaloneChat(
-        provider === 'ollama' ? 'openrouter' : provider, // Ollama goes through desktop mode; fallback to anthropic
-        apiKey,
-        settings.model,
+      await runStandaloneChat(
+        { provider, apiKey, model: settings.model, githubToken: settings.githubToken, githubRepo: settings.githubRepo, githubBranch: settings.githubBranch || 'main' },
         history,
         text,
-        (chunk) => { chat.appendChunk(msgId, chunk); chat.setStreaming(true); chat.setThinking(false); scrollToEnd() },
-        () => { chat.setStreaming(false); chat.setThinking(false); pendingId.current = null },
-        (err) => { setError(err); chat.setStreaming(false); chat.setThinking(false); pendingId.current = null },
+        (evt: EngineEvent) => {
+          switch (evt.type) {
+            case 'thinking':        chat.setThinking(true); break
+            case 'chunk':           chat.appendChunk(msgId, evt.text); chat.setStreaming(true); chat.setThinking(false); scrollToEnd(); break
+            case 'tool_start':      chat.upsertTool({ id: evt.id, name: evt.name, args: evt.args, status: 'pending', needsApproval: false }); break
+            case 'tool_result':     { const t = chat.tools.get(evt.id); if (t) chat.upsertTool({ ...t, result: evt.result, status: 'done' }); break }
+            case 'approval_needed': chat.upsertTool({ id: evt.id, name: evt.name, args: evt.args, status: 'pending', needsApproval: true }); scrollToEnd(); break
+            case 'approval_done':   { const t = chat.tools.get(evt.id); if (t) chat.upsertTool({ ...t, status: evt.approved ? 'approved' : 'denied', needsApproval: false }); break }
+            case 'done':            chat.setStreaming(false); chat.setThinking(false); pendingId.current = null; break
+            case 'error':           setError(evt.message); chat.setStreaming(false); chat.setThinking(false); pendingId.current = null; break
+          }
+        },
+        // Approval gate — returns a Promise that resolves when user taps Allow/Deny
+        (id, _name, _args) => new Promise<boolean>(resolve => {
+          pendingApprovals.current.set(id, resolve)
+        }),
         abortRef.current.signal,
       )
     }
@@ -275,7 +293,7 @@ export default function ChatScreen() {
                 />
           }
           contentContainerStyle={styles.feedContent}
-          ListEmptyComponent={<EmptyState mode={chat.mode} syncMode={settings.syncMode} />}
+          ListEmptyComponent={<EmptyState mode={chat.mode} syncMode={settings.syncMode} githubRepo={settings.githubRepo} />}
           onContentSizeChange={scrollToEnd}
           maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         />
@@ -301,13 +319,13 @@ export default function ChatScreen() {
   )
 }
 
-function EmptyState({ mode, syncMode }: { mode: Mode; syncMode: string }) {
+function EmptyState({ mode, syncMode, githubRepo }: { mode: Mode; syncMode: string; githubRepo: string }) {
   return (
     <View style={styles.empty}>
       <Text style={styles.emptyM}>M</Text>
       <Text style={styles.emptyTitle}>Mentis</Text>
       <Text style={styles.emptySub}>
-        {syncMode === 'desktop' ? 'Connected to desktop' : 'AI coding assistant'}
+        {syncMode === 'desktop' ? 'Connected to desktop' : githubRepo ? `⬡ ${githubRepo}` : 'AI coding assistant'}
       </Text>
       <View style={styles.emptyHints}>
         {mode === 'PLAN'

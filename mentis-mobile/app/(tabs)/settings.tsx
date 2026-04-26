@@ -6,6 +6,7 @@ import {
 } from 'react-native'
 import { useSettings } from '../../store'
 import { checkHealth } from '../../services/mentisClient'
+import { verifyToken, listRepos, GithubRepo } from '../../services/githubClient'
 import { C } from '../../constants/theme'
 
 const CLAUDE_MODELS = ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001']
@@ -20,8 +21,12 @@ const OR_MODELS = [
 
 export default function SettingsScreen() {
   const settings = useSettings()
-  const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState<boolean | null>(null)
+  const [testing, setTesting]           = useState(false)
+  const [testResult, setTestResult]     = useState<boolean | null>(null)
+  const [ghVerifying, setGhVerifying]   = useState(false)
+  const [ghUser, setGhUser]             = useState<string | null>(null)
+  const [repos, setRepos]               = useState<GithubRepo[]>([])
+  const [showRepos, setShowRepos]       = useState(false)
 
   const isDesktop = settings.syncMode === 'desktop'
 
@@ -37,6 +42,25 @@ export default function SettingsScreen() {
   const toggleSyncMode = (val: boolean) => {
     settings.save({ syncMode: val ? 'desktop' : 'standalone' })
     setTestResult(null)
+  }
+
+  const verifyGithub = async () => {
+    if (!settings.githubToken) {
+      Alert.alert('No token', 'Enter a GitHub Personal Access Token first.')
+      return
+    }
+    setGhVerifying(true)
+    setGhUser(null)
+    const info = await verifyToken(settings.githubToken)
+    if (info) {
+      setGhUser(info.name || info.login)
+      const repoList = await listRepos(settings.githubToken).catch(() => [])
+      setRepos(repoList)
+      setShowRepos(true)
+    } else {
+      Alert.alert('Token invalid', 'Could not authenticate with GitHub. Check your PAT has "repo" scope.')
+    }
+    setGhVerifying(false)
   }
 
   return (
@@ -175,6 +199,81 @@ export default function SettingsScreen() {
             </>
           )}
 
+          {/* GitHub connector */}
+          <Section title="GitHub Connector">
+            <Field label="Personal Access Token" hint="github.com/settings/tokens — needs repo scope">
+              <TextInput
+                style={styles.input}
+                value={settings.githubToken}
+                onChangeText={v => { settings.save({ githubToken: v }); setGhUser(null); setShowRepos(false) }}
+                placeholder="ghp_…"
+                placeholderTextColor={C.muted}
+                secureTextEntry
+                autoCapitalize="none"
+              />
+            </Field>
+
+            <TouchableOpacity
+              style={[styles.btn, ghVerifying && styles.btnDisabled]}
+              onPress={verifyGithub}
+              disabled={ghVerifying}
+            >
+              <Text style={styles.btnText}>
+                {ghVerifying ? 'Connecting…' : ghUser ? `✓ ${ghUser} — tap to refresh repos` : 'Connect GitHub'}
+              </Text>
+            </TouchableOpacity>
+
+            {showRepos && repos.length > 0 && (
+              <Field label="Select repo">
+                <ScrollView style={styles.repoList} nestedScrollEnabled>
+                  {repos.map(r => (
+                    <TouchableOpacity
+                      key={r.full_name}
+                      style={[styles.repoItem, settings.githubRepo === r.full_name && styles.repoItemActive]}
+                      onPress={() => settings.save({ githubRepo: r.full_name })}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.repoName, settings.githubRepo === r.full_name && { color: C.accentL }]}>
+                          {r.full_name}
+                        </Text>
+                        {r.description && (
+                          <Text style={styles.repoDesc} numberOfLines={1}>{r.description}</Text>
+                        )}
+                      </View>
+                      {settings.githubRepo === r.full_name && (
+                        <Text style={styles.repoCheck}>✓</Text>
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </Field>
+            )}
+
+            {settings.githubRepo ? (
+              <Field label="Branch">
+                <TextInput
+                  style={styles.input}
+                  value={settings.githubBranch}
+                  onChangeText={v => settings.save({ githubBranch: v })}
+                  placeholder="main"
+                  placeholderTextColor={C.muted}
+                  autoCapitalize="none"
+                />
+              </Field>
+            ) : null}
+
+            {settings.githubRepo ? (
+              <View style={styles.connectedBanner}>
+                <Text style={styles.connectedText}>
+                  ⬡ {settings.githubRepo} · {settings.githubBranch || 'main'}
+                </Text>
+                <TouchableOpacity onPress={() => settings.save({ githubRepo: '', githubBranch: 'main' })}>
+                  <Text style={styles.disconnectText}>disconnect</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+          </Section>
+
           {/* About */}
           <Section title="About">
             {[
@@ -249,7 +348,16 @@ const styles = StyleSheet.create({
   chipActive:    { borderColor: C.accent + '66', backgroundColor: C.accent + '22' },
   chipText:      { fontSize: 12, color: C.muted },
   chipTextActive: { color: C.accentL, fontWeight: '600' },
-  aboutRow:      { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
-  aboutKey:      { fontSize: 12, color: C.muted, width: 60 },
-  aboutVal:      { fontSize: 12, color: C.textDim, flex: 1, textAlign: 'right' },
+  aboutRow:        { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
+  aboutKey:        { fontSize: 12, color: C.muted, width: 60 },
+  aboutVal:        { fontSize: 12, color: C.textDim, flex: 1, textAlign: 'right' },
+  repoList:        { maxHeight: 200, borderWidth: 1, borderColor: C.border2, borderRadius: 10, backgroundColor: C.panel2 },
+  repoItem:        { padding: 12, borderBottomWidth: 1, borderBottomColor: C.border, flexDirection: 'row', alignItems: 'center' },
+  repoItemActive:  { backgroundColor: C.accent + '18' },
+  repoName:        { fontSize: 13, color: C.textDim, fontFamily: 'Courier New' },
+  repoDesc:        { fontSize: 11, color: C.muted, marginTop: 2 },
+  repoCheck:       { fontSize: 14, color: C.accentL, marginLeft: 8 },
+  connectedBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: C.accent + '18', borderWidth: 1, borderColor: C.accent + '33', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
+  connectedText:   { fontSize: 12, color: C.accentL, flex: 1 },
+  disconnectText:  { fontSize: 11, color: C.muted, textDecorationLine: 'underline' },
 })
