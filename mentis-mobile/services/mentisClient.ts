@@ -50,17 +50,48 @@ export async function renameSession(host: string, id: string, title: string): Pr
   })
 }
 
+/** Approve or deny a pending tool call on the desktop engine */
+export async function approveAction(host: string, id: string, approved: boolean): Promise<void> {
+  try {
+    await fetch(`${buildBase(host)}/approve/${id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approved }),
+    })
+  } catch { /* fire-and-forget: engine will time out if phone disconnects */ }
+}
+
+/** Sync PLAN / BUILD mode to the desktop engine */
+export async function setDesktopMode(host: string, mode: 'PLAN' | 'BUILD'): Promise<void> {
+  try {
+    await fetch(`${buildBase(host)}/mode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode }),
+    })
+  } catch {}
+}
+
 /**
  * Stream a chat message from the desktop sync server.
- * Calls `onChunk` for each streamed text piece, `onDone` when complete.
+ * The callback receives typed events for all engine activity, not just text chunks.
  */
+export type SyncEvent =
+  | { type: 'thinking' }
+  | { type: 'chunk';            text: string }
+  | { type: 'tool_summary';     names: string[]; count: number }
+  | { type: 'tool_start';       id: string; name: string; args: Record<string, unknown> }
+  | { type: 'tool_result';      id: string; name: string; result: string }
+  | { type: 'approval_needed';  id: string; name: string; args: Record<string, unknown> }
+  | { type: 'approval_done';    id: string; approved: boolean }
+  | { type: 'done' }
+  | { type: 'error';            message: string }
+
 export async function streamChat(
   host: string,
   message: string,
   sessionId: string | null,
-  onChunk: (text: string) => void,
-  onDone:  () => void,
-  onError: (err: string) => void,
+  onEvent: (evt: SyncEvent) => void,
 ): Promise<void> {
   try {
     const r = await fetch(`${buildBase(host)}/chat`, {
@@ -69,7 +100,7 @@ export async function streamChat(
       body:    JSON.stringify({ message, sessionId }),
     })
 
-    if (!r.ok || !r.body) { onError(`Server error ${r.status}`); return }
+    if (!r.ok || !r.body) { onEvent({ type: 'error', message: `Server error ${r.status}` }); return }
 
     const reader  = r.body.getReader()
     const decoder = new TextDecoder()
@@ -86,21 +117,20 @@ export async function streamChat(
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue
         try {
-          const evt = JSON.parse(line.slice(6))
-          if (evt.type === 'chunk') onChunk(evt.text)
-          if (evt.type === 'done')  { onDone(); return }
-          if (evt.type === 'error') { onError(evt.message); return }
+          const evt = JSON.parse(line.slice(6)) as SyncEvent
+          onEvent(evt)
+          if (evt.type === 'done' || evt.type === 'error') return
         } catch { /* partial JSON, skip */ }
       }
     }
-    onDone()
+    onEvent({ type: 'done' })
   } catch (err) {
-    onError(String(err))
+    onEvent({ type: 'error', message: String(err) })
   }
 }
 
-/** Get current model/provider config from the desktop (no keys exposed) */
-export async function getDesktopConfig(host: string): Promise<{ provider: string; model: string } | null> {
+/** Get current model/provider/mode config from the desktop (no keys exposed) */
+export async function getDesktopConfig(host: string): Promise<{ provider: string; model: string; mode: string } | null> {
   try {
     const r = await fetch(`${buildBase(host)}/config`)
     if (!r.ok) return null

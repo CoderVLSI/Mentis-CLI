@@ -1,6 +1,18 @@
 /**
  * Mentis Sync Server — HTTP API that lets the mobile app control the desktop engine.
  * Runs on port 3747 (configurable). Uses SSE for streaming chat responses.
+ *
+ * Endpoints:
+ *   GET  /health
+ *   GET  /config
+ *   GET  /sessions
+ *   POST /sessions
+ *   GET  /sessions/:id
+ *   DELETE /sessions/:id
+ *   PUT  /sessions/:id/title
+ *   POST /chat           — SSE stream
+ *   POST /approve/:id    — approve/deny a tool call
+ *   POST /mode           — set PLAN | BUILD mode
  */
 
 import http from 'http'
@@ -53,7 +65,15 @@ export function startSyncServer(engine: HeadlessEngine, port = DEFAULT_PORT): ht
         const cfg      = loadConfig()
         const provider = (cfg.defaultProvider as string) || 'ollama'
         const p        = (cfg[provider] as Record<string, string>) || {}
-        json(res, { provider, model: p.model || 'llama3' })
+        json(res, { provider, model: p.model || 'llama3', mode: engine.getMode() })
+        return
+      }
+
+      // ── Mode ────────────────────────────────────────────────────────────────
+      if (pathname === '/mode' && method === 'POST') {
+        const body = JSON.parse(await readBody(req)) as { mode: 'PLAN' | 'BUILD' }
+        if (body.mode === 'PLAN' || body.mode === 'BUILD') engine.setMode(body.mode)
+        json(res, { ok: true, mode: engine.getMode() })
         return
       }
 
@@ -70,7 +90,7 @@ export function startSyncServer(engine: HeadlessEngine, port = DEFAULT_PORT): ht
         return
       }
 
-      // ── Session history ─────────────────────────────────────────────────────
+      // ── Session history / delete ────────────────────────────────────────────
       const sessMatch = pathname.match(/^\/sessions\/([^/]+)$/)
       if (sessMatch) {
         const id = sessMatch[1]
@@ -98,9 +118,19 @@ export function startSyncServer(engine: HeadlessEngine, port = DEFAULT_PORT): ht
         return
       }
 
+      // ── Approve / deny a pending tool call ──────────────────────────────────
+      const approveMatch = pathname.match(/^\/approve\/([^/]+)$/)
+      if (approveMatch && method === 'POST') {
+        const id   = approveMatch[1]
+        const body = JSON.parse(await readBody(req)) as { approved: boolean }
+        engine.resolveApproval(id, body.approved)
+        json(res, { ok: true })
+        return
+      }
+
       // ── Chat (SSE streaming) ────────────────────────────────────────────────
       if (pathname === '/chat' && method === 'POST') {
-        const body      = JSON.parse(await readBody(req)) as { message: string; sessionId: string | null }
+        const body = JSON.parse(await readBody(req)) as { message: string; sessionId: string | null }
         const { message, sessionId } = body
 
         if (sessionId) engine.loadSession(sessionId)
@@ -113,39 +143,41 @@ export function startSyncServer(engine: HeadlessEngine, port = DEFAULT_PORT): ht
           'Access-Control-Allow-Origin': '*',
         })
 
-        const send = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`)
-
-        const onChunk = (data: unknown) => {
-          const { text } = data as { text: string }
-          send({ type: 'chunk', text })
-        }
-        const onEnd = () => {
-          send({ type: 'done' })
-          res.end()
-          engine.off('message_chunk', onChunk)
-          engine.off('message_end',   onEnd)
-          engine.off('error',         onErr)
-        }
-        const onErr = (data: unknown) => {
-          const { message: msg } = data as { message: string }
-          send({ type: 'error', message: msg })
-          res.end()
-          engine.off('message_chunk', onChunk)
-          engine.off('message_end',   onEnd)
-          engine.off('error',         onErr)
+        const send = (data: unknown) => {
+          try { res.write(`data: ${JSON.stringify(data)}\n\n`) } catch {}
         }
 
-        engine.on('message_chunk', onChunk)
-        engine.on('message_end',   onEnd)
-        engine.on('error',         onErr)
+        // ── All engine events forwarded to mobile via SSE ──────────────────
+        const listeners: Array<{ event: string; fn: (d: unknown) => void }> = []
+
+        const addListener = (event: string, fn: (d: unknown) => void) => {
+          engine.on(event as Parameters<typeof engine.on>[0], fn as Parameters<typeof engine.on>[1])
+          listeners.push({ event, fn })
+        }
+
+        const cleanup = () => {
+          for (const { event, fn } of listeners) {
+            engine.off(event as Parameters<typeof engine.off>[0], fn as Parameters<typeof engine.off>[1])
+          }
+        }
+
+        addListener('thinking',        () => send({ type: 'thinking' }))
+        addListener('message_chunk',   (d) => { const { text } = d as { text: string }; send({ type: 'chunk', text }) })
+        addListener('tool_summary',    (d) => { const { names, count } = d as { names: string[]; count: number }; send({ type: 'tool_summary', names, count }) })
+        addListener('tool_start',      (d) => { const { id, name, args } = d as { id: string; name: string; args: Record<string, unknown> }; send({ type: 'tool_start', id, name, args }) })
+        addListener('tool_result',     (d) => { const { id, name, result } = d as { id: string; name: string; result: string }; send({ type: 'tool_result', id, name, result }) })
+        addListener('approval_needed', (d) => { const { id, name, args } = d as { id: string; name: string; args: Record<string, unknown> }; send({ type: 'approval_needed', id, name, args }) })
+        addListener('approval_done',   (d) => { const { id, approved } = d as { id: string; approved: boolean }; send({ type: 'approval_done', id, approved }) })
+        addListener('error',           (d) => { const { message: msg } = d as { message: string }; send({ type: 'error', message: msg }); res.end(); cleanup() })
+        addListener('message_end',     () => { send({ type: 'done' }); res.end(); cleanup() })
+
         engine.chat(message)
 
         req.on('close', () => {
           engine.cancel()
-          engine.off('message_chunk', onChunk)
-          engine.off('message_end',   onEnd)
-          engine.off('error',         onErr)
+          cleanup()
         })
+
         return
       }
 

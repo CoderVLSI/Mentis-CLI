@@ -9,6 +9,14 @@ import { checkHealth } from '../../services/mentisClient'
 import { C } from '../../constants/theme'
 
 const CLAUDE_MODELS = ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001']
+const OR_MODELS = [
+  'google/gemini-2.0-flash-exp:free',
+  'meta-llama/llama-4-scout:free',
+  'deepseek/deepseek-r1:free',
+  'mistralai/mistral-7b-instruct:free',
+  'microsoft/phi-4:free',
+  'qwen/qwen3-30b-a3b:free',
+]
 
 export default function SettingsScreen() {
   const settings = useSettings()
@@ -86,71 +94,84 @@ export default function SettingsScreen() {
           ) : (
             /* ── Standalone mode ───────────────────────────────────────────── */
             <>
-              <Section title="Anthropic">
-                <Field label="API Key" hint="Get from console.anthropic.com">
-                  <TextInput
-                    style={styles.input}
-                    value={settings.anthropicKey}
-                    onChangeText={v => settings.save({ anthropicKey: v })}
-                    placeholder="sk-ant-api03-…"
-                    placeholderTextColor={C.muted}
-                    secureTextEntry
-                    autoCapitalize="none"
-                  />
-                </Field>
-
-                <Field label="Model">
-                  <View style={styles.chipRow}>
-                    {CLAUDE_MODELS.map(m => (
-                      <TouchableOpacity
-                        key={m}
-                        style={[styles.chip, settings.model === m && styles.chipActive]}
-                        onPress={() => settings.save({ model: m, provider: 'anthropic' })}
-                      >
-                        <Text style={[styles.chipText, settings.model === m && styles.chipTextActive]}>
-                          {m.replace('claude-', '').replace('-4-7', ' Opus').replace('-4-6', ' Sonnet').replace('-4-5-20251001', ' Haiku')}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </Field>
+              {/* Provider selector */}
+              <Section title="Provider">
+                <View style={styles.chipRow}>
+                  {(['anthropic', 'openrouter'] as const).map(p => (
+                    <TouchableOpacity
+                      key={p}
+                      style={[styles.chip, settings.provider === p && styles.chipActive]}
+                      onPress={() => settings.save({ provider: p })}
+                    >
+                      <Text style={[styles.chipText, settings.provider === p && styles.chipTextActive]}>
+                        {p === 'anthropic' ? 'Anthropic' : 'OpenRouter'}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
               </Section>
 
-              <Section title="Ollama (Local)">
-                <Row label="Use Ollama" hint="Connect to local Ollama instance">
-                  <Switch
-                    value={settings.provider === 'ollama'}
-                    onValueChange={v => settings.save({ provider: v ? 'ollama' : 'anthropic' })}
-                    trackColor={{ false: C.border2, true: C.accent + '88' }}
-                    thumbColor={settings.provider === 'ollama' ? C.accent : C.muted}
-                  />
-                </Row>
-                {settings.provider === 'ollama' && (
-                  <>
-                    <Field label="Ollama URL" hint="Must be reachable from this device">
-                      <TextInput
-                        style={styles.input}
-                        value={settings.ollamaUrl}
-                        onChangeText={v => settings.save({ ollamaUrl: v })}
-                        placeholder="http://192.168.1.x:11434/v1"
-                        placeholderTextColor={C.muted}
-                        autoCapitalize="none"
-                        keyboardType="url"
-                      />
-                    </Field>
-                    <Field label="Model name">
-                      <TextInput
-                        style={styles.input}
-                        value={settings.model}
-                        onChangeText={v => settings.save({ model: v })}
-                        placeholder="llama3"
-                        placeholderTextColor={C.muted}
-                        autoCapitalize="none"
-                      />
-                    </Field>
-                  </>
-                )}
-              </Section>
+              {settings.provider === 'openrouter' ? (
+                /* ── OpenRouter ──────────────────────────────────────────── */
+                <Section title="OpenRouter" >
+                  <Field label="API Key" hint="Free at openrouter.ai/settings/keys  ·  sk-or-v1-…">
+                    <TextInput
+                      style={styles.input}
+                      value={settings.openrouterKey}
+                      onChangeText={v => settings.save({ openrouterKey: v })}
+                      placeholder="sk-or-v1-…"
+                      placeholderTextColor={C.muted}
+                      secureTextEntry
+                      autoCapitalize="none"
+                    />
+                  </Field>
+                  <Field label="Free model">
+                    <View style={styles.chipRow}>
+                      {OR_MODELS.map(m => (
+                        <TouchableOpacity
+                          key={m}
+                          style={[styles.chip, settings.model === m && styles.chipActive]}
+                          onPress={() => settings.save({ model: m })}
+                        >
+                          <Text style={[styles.chipText, settings.model === m && styles.chipTextActive]}>
+                            {m.split('/')[1]?.replace(':free', '') ?? m}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </Field>
+                </Section>
+              ) : (
+                /* ── Anthropic ───────────────────────────────────────────── */
+                <Section title="Anthropic">
+                  <Field label="API Key" hint="Get from console.anthropic.com">
+                    <TextInput
+                      style={styles.input}
+                      value={settings.anthropicKey}
+                      onChangeText={v => settings.save({ anthropicKey: v })}
+                      placeholder="sk-ant-api03-…"
+                      placeholderTextColor={C.muted}
+                      secureTextEntry
+                      autoCapitalize="none"
+                    />
+                  </Field>
+                  <Field label="Model">
+                    <View style={styles.chipRow}>
+                      {CLAUDE_MODELS.map(m => (
+                        <TouchableOpacity
+                          key={m}
+                          style={[styles.chip, settings.model === m && styles.chipActive]}
+                          onPress={() => settings.save({ model: m })}
+                        >
+                          <Text style={[styles.chipText, settings.model === m && styles.chipTextActive]}>
+                            {m.replace('claude-', '').replace('-4-7', ' Opus').replace('-4-6', ' Sonnet').replace('-4-5-20251001', ' Haiku')}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </Field>
+                </Section>
+              )}
             </>
           )}
 

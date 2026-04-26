@@ -32,12 +32,13 @@ export type SyncMode = 'standalone' | 'desktop'
 export type Mode     = 'PLAN' | 'BUILD'
 
 export interface Settings {
-  syncMode:     SyncMode
-  desktopHost:  string
-  anthropicKey: string
-  ollamaUrl:    string
-  provider:     'anthropic' | 'ollama'
-  model:        string
+  syncMode:       SyncMode
+  desktopHost:    string
+  anthropicKey:   string
+  openrouterKey:  string
+  ollamaUrl:      string
+  provider:       'anthropic' | 'openrouter' | 'ollama'
+  model:          string
 }
 
 // ── Settings store ────────────────────────────────────────────────────────────
@@ -49,12 +50,13 @@ interface SettingsState extends Settings {
 }
 
 const DEFAULTS: Settings = {
-  syncMode:     'standalone',
-  desktopHost:  '192.168.1.1:3747',
-  anthropicKey: '',
-  ollamaUrl:    'http://localhost:11434/v1',
-  provider:     'anthropic',
-  model:        'claude-sonnet-4-6',
+  syncMode:      'standalone',
+  desktopHost:   '192.168.1.1:3747',
+  anthropicKey:  '',
+  openrouterKey: '',
+  ollamaUrl:     'http://localhost:11434/v1',
+  provider:      'anthropic',
+  model:         'claude-sonnet-4-6',
 }
 
 export const useSettings = create<SettingsState>((set, get) => ({
@@ -66,7 +68,8 @@ export const useSettings = create<SettingsState>((set, get) => ({
       const raw = await AsyncStorage.getItem('mentis:settings')
       const stored = raw ? JSON.parse(raw) : {}
       const key    = await SecureStore.getItemAsync('mentis:anthropic_key').catch(() => '')
-      set({ ...DEFAULTS, ...stored, anthropicKey: key ?? '', loaded: true })
+      const orKey  = await SecureStore.getItemAsync('mentis:openrouter_key').catch(() => '')
+      set({ ...DEFAULTS, ...stored, anthropicKey: key ?? '', openrouterKey: orKey ?? '', loaded: true })
     } catch {
       set({ loaded: true })
     }
@@ -75,10 +78,13 @@ export const useSettings = create<SettingsState>((set, get) => ({
   save: async (patch) => {
     const next = { ...get(), ...patch }
     set(next)
-    const { anthropicKey, loaded, load, save, ...rest } = next
+    const { anthropicKey, openrouterKey, loaded, load, save, ...rest } = next
     await AsyncStorage.setItem('mentis:settings', JSON.stringify(rest))
     if (patch.anthropicKey !== undefined) {
       await SecureStore.setItemAsync('mentis:anthropic_key', patch.anthropicKey)
+    }
+    if (patch.openrouterKey !== undefined) {
+      await SecureStore.setItemAsync('mentis:openrouter_key', patch.openrouterKey)
     }
   },
 }))
