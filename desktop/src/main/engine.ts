@@ -125,6 +125,57 @@ async function executeTool(name: string, args: Record<string, unknown>, cwd: str
   } catch (e: unknown) { return `Error: ${(e as Error).message}` }
 }
 
+// ── Provider helpers ──────────────────────────────────────────────────────────
+
+const CLOUD_URLS: Record<string, string> = {
+  anthropic: 'https://api.anthropic.com/v1/messages',
+  openai:    'https://api.openai.com/v1/chat/completions',
+  gemini:    'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+  grok:      'https://api.x.ai/v1/chat/completions',
+  kimi:      'https://api.moonshot.cn/v1/chat/completions',
+  glm:       'https://open.bigmodel.cn/api/paas/v4/chat/completions',
+}
+
+const CLOUD_DEFAULT_MODELS: Record<string, string> = {
+  anthropic: 'claude-sonnet-4-6',
+  openai:    'gpt-4o',
+  gemini:    'gemini-2.5-pro',
+  grok:      'grok-4.20',
+  kimi:      'kimi-k2.6',
+  glm:       'glm-5.1',
+}
+
+function toAnthropicTools(tools: typeof TOOLS) {
+  return tools.map(t => ({
+    name:         t.function.name,
+    description:  t.function.description,
+    input_schema: t.function.parameters,
+  }))
+}
+
+function toAnthropicMessages(messages: ChatMessage[]) {
+  const out: Array<{ role: string; content: string | unknown[] }> = []
+  for (const m of messages) {
+    if (m.role === 'tool') {
+      const tr = { type: 'tool_result', tool_use_id: m.tool_call_id, content: m.content || '' }
+      const last = out[out.length - 1]
+      if (last?.role === 'user' && Array.isArray(last.content)) (last.content as unknown[]).push(tr)
+      else out.push({ role: 'user', content: [tr] })
+    } else if (m.role === 'assistant') {
+      const blocks: unknown[] = []
+      if (m.content)     blocks.push({ type: 'text', text: m.content })
+      if (m.tool_calls)  m.tool_calls.forEach(tc => {
+        let input = {}; try { input = JSON.parse(tc.function.arguments) } catch {}
+        blocks.push({ type: 'tool_use', id: tc.id, name: tc.function.name, input })
+      })
+      out.push({ role: 'assistant', content: blocks.length === 1 && (blocks[0] as { type: string }).type === 'text' ? (blocks[0] as { type: string; text: string }).text : blocks })
+    } else {
+      out.push({ role: m.role, content: m.content || '' })
+    }
+  }
+  return out
+}
+
 // ── Engine ────────────────────────────────────────────────────────────────────
 
 export class HeadlessEngine extends EventEmitter {
@@ -230,14 +281,21 @@ export class HeadlessEngine extends EventEmitter {
   cancel() { this.abortController?.abort() }
 
   private getApiConfig() {
-    const cfg = loadConfig()
-    // CLI uses defaultProvider + flat provider keys: cfg.ollama.model, cfg.anthropic.apiKey, etc.
+    const cfg      = loadConfig()
     const provider = (cfg.defaultProvider as string) || 'ollama'
-    const p = (cfg[provider] as Record<string, string>) || {}
-    if (provider === 'anthropic') {
-      return { url: 'https://api.anthropic.com/v1/messages', key: p.apiKey || process.env.ANTHROPIC_API_KEY || '', type: 'anthropic', model: p.model || 'claude-sonnet-4-6', provider }
+    const p        = (cfg[provider] as Record<string, string>) || {}
+
+    if (CLOUD_URLS[provider]) {
+      return {
+        url:      CLOUD_URLS[provider],
+        key:      p.apiKey || (provider === 'anthropic' ? (process.env.ANTHROPIC_API_KEY || '') : ''),
+        type:     provider === 'anthropic' ? 'anthropic' : 'openai',
+        model:    p.model || CLOUD_DEFAULT_MODELS[provider] || 'gpt-4o',
+        provider,
+      }
     }
-    // CLI stores baseUrl with /v1 suffix; normalise either way
+
+    // Ollama / local OpenAI-compatible
     const rawBase = (p.baseUrl || 'http://localhost:11434/v1').replace(/\/$/, '')
     const base    = rawBase.endsWith('/v1') || rawBase.endsWith('/api') ? rawBase : `${rawBase}/v1`
     return { url: `${base}/chat/completions`, key: p.apiKey || 'ollama', type: 'openai', model: p.model || 'llama3', provider }
@@ -272,24 +330,39 @@ export class HeadlessEngine extends EventEmitter {
       let keepGoing = true
       while (keepGoing) {
         const messages = this.history.filter(m => m.role !== 'system')
-        const resp = await axios.post(cfg.url, {
-          model: cfg.model,
-          messages: [{ role: 'system', content: systemPrompt }, ...messages],
-          tools: TOOLS, tool_choice: 'auto', max_tokens: 4096
-        }, {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${cfg.key}`,
-            ...(cfg.type === 'anthropic' ? { 'x-api-key': cfg.key, 'anthropic-version': '2023-06-01' } : {})
-          },
+
+        const isAnthropic = cfg.type === 'anthropic'
+        const reqBody = isAnthropic
+          ? { model: cfg.model, system: systemPrompt, messages: toAnthropicMessages(messages), tools: toAnthropicTools(TOOLS), max_tokens: 4096 }
+          : { model: cfg.model, messages: [{ role: 'system', content: systemPrompt }, ...messages], tools: TOOLS, tool_choice: 'auto', max_tokens: 4096 }
+        const reqHeaders = isAnthropic
+          ? { 'Content-Type': 'application/json', 'x-api-key': cfg.key, 'anthropic-version': '2023-06-01' }
+          : { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.key}` }
+
+        const resp = await axios.post(cfg.url, reqBody, {
+          headers: reqHeaders,
           signal: this.abortController.signal,
           timeout: 120000
         })
 
-        const msg        = resp.data.choices?.[0]?.message
-        if (!msg) break
-        const content    = msg.content || ''
-        const toolCalls: ToolCall[] = msg.tool_calls || []
+        let content    = ''
+        let toolCalls: ToolCall[] = []
+
+        if (isAnthropic) {
+          type AnthropicBlock = { type: string; text?: string; id?: string; name?: string; input?: Record<string, unknown> }
+          const blocks: AnthropicBlock[] = resp.data.content || []
+          for (const block of blocks) {
+            if (block.type === 'text')     content = block.text || ''
+            if (block.type === 'tool_use') toolCalls.push({ id: block.id || '', type: 'function', function: { name: block.name || '', arguments: JSON.stringify(block.input || {}) } })
+          }
+          keepGoing = resp.data.stop_reason === 'tool_use'
+        } else {
+          const msg = resp.data.choices?.[0]?.message
+          if (!msg) break
+          content   = msg.content || ''
+          toolCalls = msg.tool_calls || []
+          keepGoing = toolCalls.length > 0
+        }
 
         this.history.push({ role: 'assistant', content, tool_calls: toolCalls.length ? toolCalls : undefined })
         if (content) this.emit('message_chunk', { text: content })

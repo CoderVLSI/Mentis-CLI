@@ -20,8 +20,24 @@ const SLASH_COMMANDS = [
   { cmd: '/help',   desc: 'List commands' },
 ]
 
-const CLAUDE_MODELS      = ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001']
-const OLLAMA_FALLBACK    = ['llama3', 'llama3.1', 'codellama', 'deepseek-coder', 'mistral', 'phi3', 'gemma2']
+const PROVIDER_MODELS: Record<string, string[]> = {
+  anthropic: ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
+  openai:    ['gpt-4.1', 'gpt-4o', 'gpt-4o-mini', 'o3', 'o4-mini'],
+  gemini:    ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'],
+  grok:      ['grok-3', 'grok-3-mini', 'grok-2-vision-1212'],
+  kimi:      ['kimi-k2', 'moonshot-v1-32k', 'moonshot-v1-128k'],
+  glm:       ['glm-4-plus', 'glm-4-flash', 'glm-z1-flash'],
+  ollama:    ['llama3', 'llama3.1', 'codellama', 'deepseek-coder', 'mistral', 'phi3', 'gemma2'],
+}
+
+const PROVIDER_LABELS: Record<string, string> = {
+  anthropic: 'Claude models', openai: 'OpenAI models', gemini: 'Gemini models',
+  grok: 'Grok models', kimi: 'Kimi models', glm: 'GLM models', ollama: 'Ollama models',
+}
+
+const PROVIDER_ORDER = ['anthropic', 'openai', 'gemini', 'grok', 'kimi', 'glm', 'ollama']
+
+const OLLAMA_FALLBACK = PROVIDER_MODELS.ollama
 
 export default function InputBar({ disabled, streaming, model, provider, onSend, onCancel, onModelChange, onProviderChange }: Props) {
   const [text, setText]               = useState('')
@@ -42,21 +58,18 @@ export default function InputBar({ disabled, streaming, model, provider, onSend,
 
   useEffect(() => { textareaRef.current?.focus() }, [])
 
-  // Auto-detect models when provider changes or dropdown opens
+  // Auto-detect models when provider changes
   useEffect(() => {
+    const staticList = PROVIDER_MODELS[provider]
+    if (staticList) { setModelList(staticList); setModelsLoading(false); return }
+
     let cancelled = false
     setModelsLoading(true)
     setModelList([])
     window.mentis.listModels().then(list => {
-      if (!cancelled) {
-        setModelList(list.length ? list : (provider === 'anthropic' ? CLAUDE_MODELS : OLLAMA_FALLBACK))
-        setModelsLoading(false)
-      }
+      if (!cancelled) { setModelList(list.length ? list : OLLAMA_FALLBACK); setModelsLoading(false) }
     }).catch(() => {
-      if (!cancelled) {
-        setModelList(provider === 'anthropic' ? CLAUDE_MODELS : OLLAMA_FALLBACK)
-        setModelsLoading(false)
-      }
+      if (!cancelled) { setModelList(OLLAMA_FALLBACK); setModelsLoading(false) }
     })
     return () => { cancelled = true }
   }, [provider])
@@ -152,15 +165,18 @@ export default function InputBar({ disabled, streaming, model, provider, onSend,
         <div className="flex items-center gap-2">
           {/* Provider toggle */}
           <button
-            onClick={() => onProviderChange(provider === 'ollama' ? 'anthropic' : 'ollama')}
+            onClick={() => {
+              const idx = PROVIDER_ORDER.indexOf(provider)
+              onProviderChange(PROVIDER_ORDER[(idx + 1) % PROVIDER_ORDER.length])
+            }}
             className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border transition-colors ${
-              provider === 'anthropic'
-                ? 'bg-orange-500/10 text-orange-400 border-orange-500/20'
-                : 'bg-[#111] text-muted border-border hover:border-[#333]'
+              provider === 'ollama'
+                ? 'bg-[#111] text-muted border-border hover:border-[#333]'
+                : 'bg-orange-500/10 text-orange-400 border-orange-500/20'
             }`}
-            title="Toggle provider"
+            title="Cycle provider"
           >
-            {provider === 'anthropic' ? '☁ Cloud' : '⬡ Local'}
+            {provider === 'ollama' ? '⬡ Local' : `☁ ${provider.charAt(0).toUpperCase() + provider.slice(1)}`}
           </button>
 
           {/* Model selector */}
@@ -181,7 +197,7 @@ export default function InputBar({ disabled, streaming, model, provider, onSend,
                 {/* Header */}
                 <div className="flex items-center justify-between px-3 py-2 border-b border-border sticky top-0 bg-panel">
                   <span className="text-[10px] text-muted uppercase tracking-wider">
-                    {provider === 'ollama' ? 'Ollama models' : 'Claude models'}
+                    {PROVIDER_LABELS[provider] || 'Models'}
                   </span>
                   {provider === 'ollama' && (
                     <button
