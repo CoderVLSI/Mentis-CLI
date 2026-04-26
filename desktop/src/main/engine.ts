@@ -348,7 +348,11 @@ export class HeadlessEngine extends EventEmitter {
           : { model: cfg.model, messages: [{ role: 'system', content: systemPrompt }, ...messages], tools: TOOLS, tool_choice: 'auto', max_tokens: 4096 }
         const reqHeaders = isAnthropic
           ? { 'Content-Type': 'application/json', 'x-api-key': cfg.key, 'anthropic-version': '2023-06-01' }
-          : { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.key}` }
+          : {
+              'Content-Type':  'application/json',
+              'Authorization': `Bearer ${cfg.key}`,
+              ...(cfg.provider === 'openrouter' ? { 'HTTP-Referer': 'https://mentis.app', 'X-Title': 'Mentis Desktop' } : {})
+            }
 
         const resp = await axios.post(cfg.url, reqBody, {
           headers: reqHeaders,
