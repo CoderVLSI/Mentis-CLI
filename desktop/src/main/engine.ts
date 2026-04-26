@@ -428,8 +428,7 @@ export class HeadlessEngine extends EventEmitter {
       if (msg.includes('aborted') || msg.includes('canceled')) {
         this.emit('error', { message: 'Cancelled.' })
       } else if (status === 401 || status === 403) {
-        const keyHint = cfg.key ? `key starts with "${cfg.key.slice(0, 10)}…" len=${cfg.key.length}` : 'key is EMPTY'
-        this.emit('error', { message: `401 for ${cfg.provider} — ${keyHint}. Model: ${cfg.model}. URL: ${cfg.url}` })
+        this.emit('error', { message: `API key rejected by ${cfg.provider}. Make sure you copied the correct key from the provider dashboard.` })
       } else if (status === 404) {
         this.emit('error', { message: `Model not found: ${cfg.model}. Pick a different model in the dropdown.` })
       } else {
