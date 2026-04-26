@@ -349,7 +349,14 @@ export class HeadlessEngine extends EventEmitter {
     let globalInstructions = ''
     try { if (fs.existsSync(MENTIS_MD_PATH)) globalInstructions = `\n\n# User Instructions\n${fs.readFileSync(MENTIS_MD_PATH, 'utf-8')}` } catch {}
 
-    const systemPrompt = `You are Mentis, an expert AI coding assistant. Mode: ${this.mode}. Working directory: ${this.cwd}. Be concise and thorough. Use tools to complete tasks.${globalInstructions}`
+    const systemPrompt = this.mode === 'PLAN'
+      ? `You are Mentis, an expert AI coding assistant in PLAN MODE. Working directory: ${this.cwd}.
+
+Use read-only tools (read_file, list_dir, web_search) to analyze the codebase, then produce a clear numbered implementation plan with exact file paths and the precise changes needed. Do NOT modify files or run shell commands — analysis and planning only. When done, tell the user to switch to BUILD mode to execute the plan.${globalInstructions}`
+      : `You are Mentis, an expert AI coding assistant in BUILD MODE. Working directory: ${this.cwd}. Be concise and thorough. Use tools to complete tasks.${globalInstructions}`
+
+    const PLAN_SAFE = new Set(['read_file', 'list_dir', 'web_search'])
+    const activeTools = this.mode === 'PLAN' ? TOOLS.filter(t => PLAN_SAFE.has(t.function.name)) : TOOLS
 
     try {
       let keepGoing = true
@@ -358,8 +365,8 @@ export class HeadlessEngine extends EventEmitter {
 
         const isAnthropic = cfg.type === 'anthropic'
         const reqBody = isAnthropic
-          ? { model: cfg.model, system: systemPrompt, messages: toAnthropicMessages(messages), tools: toAnthropicTools(TOOLS), max_tokens: 4096 }
-          : { model: cfg.model, messages: [{ role: 'system', content: systemPrompt }, ...messages], tools: TOOLS, tool_choice: 'auto', max_tokens: 4096 }
+          ? { model: cfg.model, system: systemPrompt, messages: toAnthropicMessages(messages), tools: toAnthropicTools(activeTools), max_tokens: 4096 }
+          : { model: cfg.model, messages: [{ role: 'system', content: systemPrompt }, ...messages], tools: activeTools, tool_choice: 'auto', max_tokens: 4096 }
         const reqHeaders = isAnthropic
           ? { 'Content-Type': 'application/json', 'x-api-key': cfg.key, 'anthropic-version': '2023-06-01' }
           : {

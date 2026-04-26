@@ -356,10 +356,12 @@ export default function App() {
             streaming={streaming || thinking}
             model={model}
             provider={provider}
+            planMode={session.mode === 'PLAN'}
             onSend={send}
             onCancel={cancel}
             onModelChange={changeModel}
             onProviderChange={changeProvider}
+            onTogglePlanMode={toggleMode}
           />
         </div>
       </div>

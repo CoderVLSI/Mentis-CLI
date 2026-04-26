@@ -1,14 +1,16 @@
 import { useState, useRef, useEffect, KeyboardEvent } from 'react'
 
 interface Props {
-  disabled:         boolean
-  streaming:        boolean
-  model:            string
-  provider:         string
-  onSend:           (text: string) => void
-  onCancel:         () => void
-  onModelChange:    (model: string) => void
-  onProviderChange: (provider: string) => void
+  disabled:          boolean
+  streaming:         boolean
+  model:             string
+  provider:          string
+  planMode:          boolean
+  onSend:            (text: string) => void
+  onCancel:          () => void
+  onModelChange:     (model: string) => void
+  onProviderChange:  (provider: string) => void
+  onTogglePlanMode:  () => void
 }
 
 const SLASH_COMMANDS = [
@@ -41,7 +43,7 @@ const PROVIDER_ORDER = ['anthropic', 'openai', 'gemini', 'grok', 'kimi', 'glm', 
 
 const OLLAMA_FALLBACK = PROVIDER_MODELS.ollama
 
-export default function InputBar({ disabled, streaming, model, provider, onSend, onCancel, onModelChange, onProviderChange }: Props) {
+export default function InputBar({ disabled, streaming, model, provider, planMode, onSend, onCancel, onModelChange, onProviderChange, onTogglePlanMode }: Props) {
   const [text, setText]               = useState('')
   const [ddOpen, setDdOpen]           = useState(false)
   const [ddIdx, setDdIdx]             = useState(0)
@@ -105,6 +107,7 @@ export default function InputBar({ disabled, streaming, model, provider, onSend,
   }
 
   const handleKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Tab' && e.shiftKey) { e.preventDefault(); onTogglePlanMode(); return }
     if (ddOpen) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setDdIdx(i => Math.min(i + 1, ddItems.length - 1)); return }
       if (e.key === 'ArrowUp')   { e.preventDefault(); setDdIdx(i => Math.max(i - 1, 0)); return }
@@ -168,6 +171,22 @@ export default function InputBar({ disabled, streaming, model, provider, onSend,
       {/* Bottom bar */}
       <div className="flex items-center justify-between mt-1.5 px-1">
         <div className="flex items-center gap-2">
+          {/* Plan mode pill */}
+          <button
+            onClick={onTogglePlanMode}
+            title="Toggle PLAN / BUILD mode  (Shift+Tab)"
+            className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border transition-colors ${
+              planMode
+                ? 'bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500/25'
+                : 'bg-[#111] text-muted/60 border-border hover:border-[#333] hover:text-muted'
+            }`}
+          >
+            {planMode
+              ? <><PauseIcon /> PLAN</>
+              : <><PlayIcon /> BUILD</>
+            }
+          </button>
+
           {/* Provider toggle */}
           <button
             onClick={() => {
@@ -248,7 +267,7 @@ export default function InputBar({ disabled, streaming, model, provider, onSend,
         </div>
 
         <span className="text-[10px] text-muted">
-          {streaming ? 'Generating…' : 'Enter · Shift+Enter for newline · / for commands'}
+          {streaming ? 'Generating…' : planMode ? '⏸ Plan mode — read-only · Shift+Tab to exit' : 'Enter · Shift+Enter newline · Shift+Tab plan mode'}
         </span>
       </div>
     </div>
@@ -261,4 +280,12 @@ function SendIcon() {
 
 function StopIcon() {
   return <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+}
+
+function PauseIcon() {
+  return <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+}
+
+function PlayIcon() {
+  return <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
 }
