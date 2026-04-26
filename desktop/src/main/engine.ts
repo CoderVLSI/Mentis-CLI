@@ -428,7 +428,8 @@ export class HeadlessEngine extends EventEmitter {
       if (msg.includes('aborted') || msg.includes('canceled')) {
         this.emit('error', { message: 'Cancelled.' })
       } else if (status === 401 || status === 403) {
-        this.emit('error', { message: `API key invalid or expired for ${cfg.provider}. Re-enter your key in Settings → Providers.` })
+        const keyHint = cfg.key ? `key starts with "${cfg.key.slice(0, 10)}…" len=${cfg.key.length}` : 'key is EMPTY'
+        this.emit('error', { message: `401 for ${cfg.provider} — ${keyHint}. Model: ${cfg.model}. URL: ${cfg.url}` })
       } else if (status === 404) {
         this.emit('error', { message: `Model not found: ${cfg.model}. Pick a different model in the dropdown.` })
       } else {
