@@ -22,11 +22,11 @@ const SLASH_COMMANDS = [
 
 const PROVIDER_MODELS: Record<string, string[]> = {
   anthropic: ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
-  openai:    ['gpt-4.1', 'gpt-4o', 'gpt-4o-mini', 'o3', 'o4-mini'],
-  gemini:    ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'],
-  grok:      ['grok-3', 'grok-3-mini', 'grok-2-vision-1212'],
-  kimi:      ['kimi-k2', 'moonshot-v1-32k', 'moonshot-v1-128k'],
-  glm:       ['glm-4-plus', 'glm-4-flash', 'glm-z1-flash'],
+  openai:    ['gpt-5.5', 'gpt-5.5-pro', 'gpt-5.4-mini', 'gpt-5.4-nano', 'gpt-4o', 'o3'],
+  gemini:    ['gemini-3.1-pro', 'gemini-3.1-flash', 'gemini-3-flash', 'gemini-2.5-pro'],
+  grok:      ['grok-4.20', 'grok-4.20-reasoning', 'grok-code-fast-1', 'grok-4.1-fast'],
+  kimi:      ['kimi-k2.6', 'kimi-k2.5', 'moonshot-v1-128k', 'moonshot-v1-32k'],
+  glm:       ['glm-5.1', 'glm-5', 'glm-5-turbo', 'glm-4.7', 'glm-4.7-flash'],
   ollama:    ['llama3', 'llama3.1', 'codellama', 'deepseek-coder', 'mistral', 'phi3', 'gemma2'],
 }
 
