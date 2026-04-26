@@ -115,7 +115,9 @@ ipcMain.handle('config:set-provider', (_e, provider: string) => {
 
 ipcMain.handle('config:update-provider-settings', (_e, provider: string, settings: Record<string, string>) => {
   const cfg = loadConfig()
-  cfg[provider] = { ...((cfg[provider] as Record<string, string>) || {}), ...settings }
+  const trimmed: Record<string, string> = {}
+  for (const [k, v] of Object.entries(settings)) trimmed[k] = typeof v === 'string' ? v.trim() : v
+  cfg[provider] = { ...((cfg[provider] as Record<string, string>) || {}), ...trimmed }
   saveConfig(cfg)
   return { ok: true }
 })

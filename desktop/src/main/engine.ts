@@ -288,11 +288,12 @@ export class HeadlessEngine extends EventEmitter {
     const p        = (cfg[provider] as Record<string, string>) || {}
 
     if (CLOUD_URLS[provider]) {
+      const rawKey = (p.apiKey || (provider === 'anthropic' ? (process.env.ANTHROPIC_API_KEY || '') : '')).trim()
       return {
         url:      CLOUD_URLS[provider],
-        key:      p.apiKey || (provider === 'anthropic' ? (process.env.ANTHROPIC_API_KEY || '') : ''),
+        key:      rawKey,
         type:     provider === 'anthropic' ? 'anthropic' : 'openai',
-        model:    p.model || CLOUD_DEFAULT_MODELS[provider] || 'gpt-4o',
+        model:    (p.model || CLOUD_DEFAULT_MODELS[provider] || 'gpt-4o').trim(),
         provider,
       }
     }
@@ -422,6 +423,10 @@ export class HeadlessEngine extends EventEmitter {
       const msg      = axiosErr.message || ''
       if (msg.includes('aborted') || msg.includes('canceled')) {
         this.emit('error', { message: 'Cancelled.' })
+      } else if (status === 401 || status === 403) {
+        this.emit('error', { message: `API key invalid or expired for ${cfg.provider}. Re-enter your key in Settings → Providers.` })
+      } else if (status === 404) {
+        this.emit('error', { message: `Model not found: ${cfg.model}. Pick a different model in the dropdown.` })
       } else {
         const detail = body ? ` — ${JSON.stringify(body).slice(0, 300)}` : ''
         this.emit('error', { message: `${status ? `HTTP ${status}` : msg}${detail}` })
