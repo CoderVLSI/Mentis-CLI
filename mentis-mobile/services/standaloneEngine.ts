@@ -1,9 +1,7 @@
 /**
- * Standalone engine — runs an Anthropic tool-use loop on the phone.
- * Tools are backed by the GitHub REST API (no desktop required).
- *
- * Emits typed events that mirror the desktop sync server's SSE events
- * so the chat screen doesn't need to know which backend it's using.
+ * Standalone engine — runs a tool-use loop on the phone.
+ * GitHub tools are backed by the GitHub REST API (no desktop required).
+ * Supports Anthropic native format + all OpenAI-compatible providers.
  */
 
 import {
@@ -24,33 +22,104 @@ export type EngineEvent =
   | { type: 'error';            message: string }
 
 export interface StandaloneConfig {
-  provider:      'anthropic' | 'openrouter'
-  apiKey:        string
+  provider:      string
+  // All API keys — engine picks the right one
+  anthropicKey:  string
+  openaiKey:     string
+  geminiKey:     string
+  grokKey:       string
+  kimiKey:       string
+  glmKey:        string
+  openrouterKey: string
+  ollamaUrl:     string
   model:         string
   githubToken:   string
-  githubRepo:    string   // e.g. "owner/repo"
-  githubBranch:  string   // e.g. "main"
+  githubRepo:    string
+  githubBranch:  string
 }
 
-type AnthropicMsg = {
-  role: 'user' | 'assistant'
-  content: string | AnthropicBlock[]
-}
+type SimpleMsg = { role: 'user' | 'assistant'; content: string }
+
+// Anthropic-format internal types (used only for the Anthropic provider path)
 type AnthropicBlock =
   | { type: 'text'; text: string }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
   | { type: 'tool_result'; tool_use_id: string; content: string }
+type AnthropicMsg = { role: 'user' | 'assistant'; content: string | AnthropicBlock[] }
+
+// OpenAI-format internal types (used for all other providers)
+type OAIToolCall = { id: string; type: 'function'; function: { name: string; arguments: string } }
+type OAIMsg =
+  | { role: 'system' | 'user'; content: string }
+  | { role: 'assistant'; content: string | null; tool_calls?: OAIToolCall[] }
+  | { role: 'tool'; content: string; tool_call_id: string }
+
+// ── Provider routing ──────────────────────────────────────────────────────────
+
+function getRoute(cfg: StandaloneConfig): { url: string; headers: Record<string, string> } {
+  switch (cfg.provider) {
+    case 'openai':
+      return {
+        url:     'https://api.openai.com/v1/chat/completions',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.openaiKey}` },
+      }
+    case 'gemini':
+      return {
+        url:     'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.geminiKey}` },
+      }
+    case 'grok':
+      return {
+        url:     'https://api.x.ai/v1/chat/completions',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.grokKey}` },
+      }
+    case 'kimi':
+      return {
+        url:     'https://api.moonshot.cn/v1/chat/completions',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.kimiKey}` },
+      }
+    case 'glm':
+      return {
+        url:     'https://open.bigmodel.cn/api/paas/v4/chat/completions',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.glmKey}` },
+      }
+    case 'openrouter':
+      return {
+        url:     'https://openrouter.ai/api/v1/chat/completions',
+        headers: {
+          'Content-Type':  'application/json',
+          'Authorization': `Bearer ${cfg.openrouterKey}`,
+          'HTTP-Referer':  'https://mentis.app',
+          'X-Title':       'Mentis Mobile',
+        },
+      }
+    case 'ollama':
+      return {
+        url:     `${(cfg.ollamaUrl || 'http://localhost:11434/v1').replace(/\/$/, '')}/chat/completions`,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    default: // 'anthropic'
+      return {
+        url:     'https://api.anthropic.com/v1/messages',
+        headers: {
+          'Content-Type':     'application/json',
+          'x-api-key':        cfg.anthropicKey,
+          'anthropic-version': '2023-06-01',
+        },
+      }
+  }
+}
 
 // ── Tool definitions ─────────────────────────────────────────────────────────
 
-const GITHUB_TOOLS = [
+const GITHUB_TOOLS_ANTHROPIC = [
   {
     name: 'github_list_files',
     description: 'List files and directories in the connected GitHub repo at a given path.',
     input_schema: {
       type: 'object',
       properties: {
-        path:   { type: 'string', description: 'Directory path, e.g. "src/components". Use "" for root.' },
+        path: { type: 'string', description: 'Directory path, e.g. "src/components". Use "" for root.' },
       },
       required: ['path'],
     },
@@ -92,6 +161,16 @@ const GITHUB_TOOLS = [
   },
 ]
 
+// OpenAI-format tool definitions (same functionality)
+const GITHUB_TOOLS_OAI = GITHUB_TOOLS_ANTHROPIC.map(t => ({
+  type: 'function' as const,
+  function: {
+    name:        t.name,
+    description: t.description,
+    parameters:  t.input_schema,
+  },
+}))
+
 const NEEDS_APPROVAL = new Set(['github_write_file'])
 
 // ── Tool executor ────────────────────────────────────────────────────────────
@@ -102,21 +181,20 @@ async function executeTool(
   cfg:  StandaloneConfig,
 ): Promise<string> {
   try {
-    if (!cfg.githubToken) return 'Error: No GitHub token configured. Add it in Settings → GitHub.'
-    if (!cfg.githubRepo)  return 'Error: No GitHub repo configured. Add it in Settings → GitHub.'
+    if (!cfg.githubToken) return 'Error: No GitHub token configured. Add it in Settings → GitHub Connector.'
+    if (!cfg.githubRepo)  return 'Error: No GitHub repo configured. Select one in Settings → GitHub Connector.'
 
     const branch = cfg.githubBranch || 'main'
 
     if (name === 'github_list_files') {
-      const path = (args.path as string) || ''
+      const path  = (args.path as string) || ''
       const files = await listFiles(cfg.githubToken, cfg.githubRepo, path, branch)
       if (!files.length) return 'Directory is empty or does not exist.'
       return files.map(f => `${f.type === 'dir' ? '📁' : '📄'} ${f.name}${f.size !== undefined ? ` (${f.size}B)` : ''}`).join('\n')
     }
 
     if (name === 'github_read_file') {
-      const content = await readFile(cfg.githubToken, cfg.githubRepo, args.path as string, branch)
-      return content
+      return await readFile(cfg.githubToken, cfg.githubRepo, args.path as string, branch)
     }
 
     if (name === 'github_write_file') {
@@ -143,32 +221,23 @@ async function executeTool(
   }
 }
 
-// ── Main engine loop ─────────────────────────────────────────────────────────
+// ── Anthropic-format engine loop ──────────────────────────────────────────────
 
-export async function runStandaloneChat(
-  cfg:     StandaloneConfig,
-  history: AnthropicMsg[],
-  message: string,
-  onEvent: (evt: EngineEvent) => void,
+async function runAnthropicLoop(
+  cfg:          StandaloneConfig,
+  systemPrompt: string,
+  history:      SimpleMsg[],
+  message:      string,
+  onEvent:      (evt: EngineEvent) => void,
   approvalGate: (id: string, name: string, args: Record<string, unknown>) => Promise<boolean>,
-  signal?: AbortSignal,
-): Promise<AnthropicMsg[]> {
-  const repoInfo = cfg.githubRepo
-    ? `Connected GitHub repo: ${cfg.githubRepo} (branch: ${cfg.githubBranch || 'main'})`
-    : 'No GitHub repo connected — file tools unavailable.'
-
-  const systemPrompt = cfg.githubRepo
-    ? `You are Mentis, an expert AI coding assistant. ${repoInfo}
-
-Use the github_* tools to read and modify the codebase. Always read files before editing them. When writing files, write the complete file content. Be concise and thorough.`
-    : 'You are Mentis, an expert AI coding assistant. No repository is connected — provide coding advice and generate code snippets without file access.'
-
-  const tools = cfg.githubRepo ? GITHUB_TOOLS : []
-
-  const msgs: AnthropicMsg[] = [...history, { role: 'user', content: message }]
-  const updatedHistory = [...msgs]
-
-  onEvent({ type: 'thinking' })
+  signal?:      AbortSignal,
+) {
+  const { url, headers } = getRoute(cfg)
+  const tools = cfg.githubRepo ? GITHUB_TOOLS_ANTHROPIC : []
+  const msgs: AnthropicMsg[] = [
+    ...history.map(m => ({ role: m.role, content: m.content })),
+    { role: 'user', content: message },
+  ]
 
   let keepGoing = true
   while (keepGoing) {
@@ -176,104 +245,179 @@ Use the github_* tools to read and modify the codebase. Always read files before
 
     const body: Record<string, unknown> = {
       model:      cfg.model,
-      max_tokens: 4096,
+      max_tokens: 8096,
       system:     systemPrompt,
       messages:   msgs,
     }
-    if (tools.length) {
-      body.tools = tools
-      body.tool_choice = { type: 'auto' }
-    }
-
-    const isAnthropic = cfg.provider === 'anthropic'
-    const url = isAnthropic
-      ? 'https://api.anthropic.com/v1/messages'
-      : 'https://openrouter.ai/api/v1/chat/completions'
-
-    const reqHeaders: Record<string, string> = isAnthropic
-      ? { 'Content-Type': 'application/json', 'x-api-key': cfg.apiKey, 'anthropic-version': '2023-06-01' }
-      : { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.apiKey}`, 'HTTP-Referer': 'https://mentis.app', 'X-Title': 'Mentis Mobile' }
+    if (tools.length) { body.tools = tools; body.tool_choice = { type: 'auto' } }
 
     let resp: Response
     try {
-      resp = await fetch(url, { method: 'POST', headers: reqHeaders, body: JSON.stringify(body), signal })
+      resp = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal })
     } catch (e: unknown) {
-      if ((e as Error).name === 'AbortError') return updatedHistory
-      onEvent({ type: 'error', message: String(e) }); return updatedHistory
+      if ((e as Error).name === 'AbortError') return
+      onEvent({ type: 'error', message: String(e) }); return
     }
 
     if (!resp.ok) {
       const errText = await resp.text().catch(() => '')
-      if (resp.status === 401 || resp.status === 403) {
-        onEvent({ type: 'error', message: 'API key rejected. Check your key in Settings.' })
-      } else if (resp.status === 404) {
-        onEvent({ type: 'error', message: `Model not found: ${cfg.model}` })
-      } else {
-        onEvent({ type: 'error', message: `HTTP ${resp.status}: ${errText.slice(0, 200)}` })
-      }
-      return updatedHistory
+      if (resp.status === 401 || resp.status === 403) onEvent({ type: 'error', message: 'API key rejected. Check your key in Settings.' })
+      else if (resp.status === 404) onEvent({ type: 'error', message: `Model not found: ${cfg.model}` })
+      else onEvent({ type: 'error', message: `HTTP ${resp.status}: ${errText.slice(0, 200)}` })
+      return
     }
 
     const data = await resp.json()
+    const blocks: Array<{ type: string; text?: string; id?: string; name?: string; input?: Record<string, unknown> }> = data.content || []
 
-    // Parse response (Anthropic format — OpenRouter mirrors it with tools)
     let text = ''
     const toolCalls: Array<{ id: string; name: string; args: Record<string, unknown> }> = []
-
-    if (isAnthropic || tools.length) {
-      // Anthropic native tool_use format
-      const blocks: Array<{ type: string; text?: string; id?: string; name?: string; input?: Record<string, unknown> }> =
-        data.content || []
-      for (const b of blocks) {
-        if (b.type === 'text')     text = b.text || ''
-        if (b.type === 'tool_use') toolCalls.push({ id: b.id!, name: b.name!, args: b.input || {} })
-      }
-      keepGoing = data.stop_reason === 'tool_use'
-    } else {
-      // OpenRouter without tools — plain text
-      text = data.choices?.[0]?.message?.content || ''
-      keepGoing = false
+    for (const b of blocks) {
+      if (b.type === 'text')     text = b.text || ''
+      if (b.type === 'tool_use') toolCalls.push({ id: b.id!, name: b.name!, args: b.input || {} })
     }
+    keepGoing = data.stop_reason === 'tool_use'
 
-    // Add assistant turn to history
     const assistantContent: AnthropicBlock[] = []
     if (text) assistantContent.push({ type: 'text', text })
     for (const tc of toolCalls) assistantContent.push({ type: 'tool_use', id: tc.id, name: tc.name, input: tc.args })
     msgs.push({ role: 'assistant', content: assistantContent.length ? assistantContent : text })
-    updatedHistory.push({ role: 'assistant', content: assistantContent.length ? assistantContent : text })
 
     if (text) onEvent({ type: 'chunk', text })
+    if (!toolCalls.length) break
 
-    if (!toolCalls.length) { keepGoing = false; break }
-
-    // Execute tools
     const toolResults: AnthropicBlock[] = []
     for (const tc of toolCalls) {
       onEvent({ type: 'tool_start', id: tc.id, name: tc.name, args: tc.args })
-
       let approved = true
       if (NEEDS_APPROVAL.has(tc.name)) {
         onEvent({ type: 'approval_needed', id: tc.id, name: tc.name, args: tc.args })
         approved = await approvalGate(tc.id, tc.name, tc.args)
         onEvent({ type: 'approval_done', id: tc.id, approved })
       }
-
-      const result = approved
-        ? await executeTool(tc.name, tc.args, cfg)
-        : 'User denied this action.'
-
+      const result = approved ? await executeTool(tc.name, tc.args, cfg) : 'User denied this action.'
       onEvent({ type: 'tool_result', id: tc.id, name: tc.name, result })
       toolResults.push({ type: 'tool_result', tool_use_id: tc.id, content: result })
     }
-
     msgs.push({ role: 'user', content: toolResults })
-    updatedHistory.push({ role: 'user', content: toolResults })
+  }
+}
+
+// ── OpenAI-compatible engine loop ─────────────────────────────────────────────
+
+async function runOpenAILoop(
+  cfg:          StandaloneConfig,
+  systemPrompt: string,
+  history:      SimpleMsg[],
+  message:      string,
+  onEvent:      (evt: EngineEvent) => void,
+  approvalGate: (id: string, name: string, args: Record<string, unknown>) => Promise<boolean>,
+  signal?:      AbortSignal,
+) {
+  const { url, headers } = getRoute(cfg)
+  const tools = cfg.githubRepo ? GITHUB_TOOLS_OAI : []
+  const msgs: OAIMsg[] = [
+    { role: 'system', content: systemPrompt },
+    ...history.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+    { role: 'user', content: message },
+  ]
+
+  let keepGoing = true
+  while (keepGoing) {
+    if (signal?.aborted) break
+
+    const body: Record<string, unknown> = {
+      model:      cfg.model,
+      max_tokens: 8096,
+      messages:   msgs,
+    }
+    if (tools.length) { body.tools = tools; body.tool_choice = 'auto' }
+
+    let resp: Response
+    try {
+      resp = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal })
+    } catch (e: unknown) {
+      if ((e as Error).name === 'AbortError') return
+      onEvent({ type: 'error', message: String(e) }); return
+    }
+
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '')
+      if (resp.status === 401 || resp.status === 403) onEvent({ type: 'error', message: 'API key rejected. Check your key in Settings.' })
+      else if (resp.status === 404) onEvent({ type: 'error', message: `Model not found: ${cfg.model}` })
+      else onEvent({ type: 'error', message: `HTTP ${resp.status}: ${errText.slice(0, 200)}` })
+      return
+    }
+
+    const data = await resp.json()
+    const choice = data.choices?.[0]
+    const msg    = choice?.message
+
+    const text: string        = msg?.content || ''
+    const rawCalls: OAIToolCall[] = msg?.tool_calls || []
+    keepGoing = choice?.finish_reason === 'tool_calls' && rawCalls.length > 0
+
+    // Add assistant turn to OAI history
+    msgs.push({ role: 'assistant', content: text || null, tool_calls: rawCalls.length ? rawCalls : undefined })
+
+    if (text) onEvent({ type: 'chunk', text })
+    if (!rawCalls.length) break
+
+    for (const tc of rawCalls) {
+      let args: Record<string, unknown> = {}
+      try { args = JSON.parse(tc.function.arguments || '{}') } catch { /* ignore */ }
+      const name = tc.function.name
+
+      onEvent({ type: 'tool_start', id: tc.id, name, args })
+      let approved = true
+      if (NEEDS_APPROVAL.has(name)) {
+        onEvent({ type: 'approval_needed', id: tc.id, name, args })
+        approved = await approvalGate(tc.id, name, args)
+        onEvent({ type: 'approval_done', id: tc.id, approved })
+      }
+      const result = approved ? await executeTool(name, args, cfg) : 'User denied this action.'
+      onEvent({ type: 'tool_result', id: tc.id, name, result })
+      msgs.push({ role: 'tool', content: result, tool_call_id: tc.id })
+    }
+  }
+}
+
+// ── Main entry point ─────────────────────────────────────────────────────────
+
+export async function runStandaloneChat(
+  cfg:          StandaloneConfig,
+  history:      SimpleMsg[],
+  message:      string,
+  onEvent:      (evt: EngineEvent) => void,
+  approvalGate: (id: string, name: string, args: Record<string, unknown>) => Promise<boolean>,
+  signal?:      AbortSignal,
+): Promise<void> {
+  const repoInfo = cfg.githubRepo
+    ? `Connected GitHub repo: ${cfg.githubRepo} (branch: ${cfg.githubBranch || 'main'})`
+    : 'No GitHub repo connected — file tools unavailable.'
+
+  const systemPrompt = cfg.githubRepo
+    ? `You are Mentis, an expert AI coding assistant. ${repoInfo}
+
+Use the github_* tools to read and modify the codebase. Always read files before editing them. Write complete file content when creating or updating files. Be concise and thorough.`
+    : 'You are Mentis, an expert AI coding assistant. Provide coding advice and generate code snippets. No repository is connected.'
+
+  onEvent({ type: 'thinking' })
+
+  try {
+    if (cfg.provider === 'anthropic') {
+      await runAnthropicLoop(cfg, systemPrompt, history, message, onEvent, approvalGate, signal)
+    } else {
+      await runOpenAILoop(cfg, systemPrompt, history, message, onEvent, approvalGate, signal)
+    }
+  } catch (e: unknown) {
+    if ((e as Error).name !== 'AbortError') {
+      onEvent({ type: 'error', message: String(e) })
+    }
   }
 
   onEvent({ type: 'done' })
-  return updatedHistory
 }
 
-// ── OpenRouter standalone (no tools) ─────────────────────────────────────────
-// Re-exported for callers that don't need GitHub tools
+// Re-export for legacy callers
 export { streamOpenRouterChat }

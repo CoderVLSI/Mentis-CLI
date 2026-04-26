@@ -5,7 +5,6 @@ import {
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { useChat, useSettings, Message, Mode } from '../../store'
-import { StandaloneProvider } from '../../services/anthropicClient'
 import { runStandaloneChat, EngineEvent } from '../../services/standaloneEngine'
 import { streamChat, newSession, approveAction, setDesktopMode, SyncEvent } from '../../services/mentisClient'
 import ChatBubble from '../../components/ChatBubble'
@@ -153,15 +152,27 @@ export default function ChatScreen() {
     } else {
       // ── Standalone mode: tool-enabled engine with GitHub connector ─────
       abortRef.current = new AbortController()
-      const provider = settings.provider === 'ollama' ? 'anthropic' : settings.provider as StandaloneProvider
-      const apiKey   = provider === 'openrouter' ? settings.openrouterKey : settings.anthropicKey
 
       const history = chat.feed
         .filter(m => m.role === 'user' || m.role === 'assistant')
         .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }))
 
       await runStandaloneChat(
-        { provider, apiKey, model: settings.model, githubToken: settings.githubToken, githubRepo: settings.githubRepo, githubBranch: settings.githubBranch || 'main' },
+        {
+          provider:      settings.provider,
+          anthropicKey:  settings.anthropicKey,
+          openaiKey:     settings.openaiKey,
+          geminiKey:     settings.geminiKey,
+          grokKey:       settings.grokKey,
+          kimiKey:       settings.kimiKey,
+          glmKey:        settings.glmKey,
+          openrouterKey: settings.openrouterKey,
+          ollamaUrl:     settings.ollamaUrl,
+          model:         settings.model,
+          githubToken:   settings.githubToken,
+          githubRepo:    settings.githubRepo,
+          githubBranch:  settings.githubBranch || 'main',
+        },
         history,
         text,
         (evt: EngineEvent) => {

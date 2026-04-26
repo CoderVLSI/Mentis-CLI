@@ -30,18 +30,26 @@ export interface Session {
 
 export type SyncMode = 'standalone' | 'desktop'
 export type Mode     = 'PLAN' | 'BUILD'
+export type Provider = 'anthropic' | 'openai' | 'gemini' | 'grok' | 'kimi' | 'glm' | 'openrouter' | 'ollama'
 
 export interface Settings {
   syncMode:       SyncMode
   desktopHost:    string
+  // API keys (stored in SecureStore)
   anthropicKey:   string
+  openaiKey:      string
+  geminiKey:      string
+  grokKey:        string
+  kimiKey:        string
+  glmKey:         string
   openrouterKey:  string
-  ollamaUrl:      string
-  provider:       'anthropic' | 'openrouter' | 'ollama'
-  model:          string
   githubToken:    string
-  githubRepo:     string    // e.g. "owner/repo"
-  githubBranch:   string    // e.g. "main"
+  // Non-sensitive settings
+  ollamaUrl:      string
+  provider:       Provider
+  model:          string
+  githubRepo:     string
+  githubBranch:   string
 }
 
 // ── Settings store ────────────────────────────────────────────────────────────
@@ -56,13 +64,32 @@ const DEFAULTS: Settings = {
   syncMode:      'standalone',
   desktopHost:   '192.168.1.1:3747',
   anthropicKey:  '',
+  openaiKey:     '',
+  geminiKey:     '',
+  grokKey:       '',
+  kimiKey:       '',
+  glmKey:        '',
   openrouterKey: '',
+  githubToken:   '',
   ollamaUrl:     'http://localhost:11434/v1',
   provider:      'anthropic',
   model:         'claude-sonnet-4-6',
-  githubToken:   '',
   githubRepo:    '',
   githubBranch:  'main',
+}
+
+const SECURE_KEYS = ['anthropicKey', 'openaiKey', 'geminiKey', 'grokKey', 'kimiKey', 'glmKey', 'openrouterKey', 'githubToken'] as const
+type SecureKey = typeof SECURE_KEYS[number]
+
+const SECURE_STORE_ID: Record<SecureKey, string> = {
+  anthropicKey:  'mentis:anthropic_key',
+  openaiKey:     'mentis:openai_key',
+  geminiKey:     'mentis:gemini_key',
+  grokKey:       'mentis:grok_key',
+  kimiKey:       'mentis:kimi_key',
+  glmKey:        'mentis:glm_key',
+  openrouterKey: 'mentis:openrouter_key',
+  githubToken:   'mentis:github_token',
 }
 
 export const useSettings = create<SettingsState>((set, get) => ({
@@ -71,12 +98,13 @@ export const useSettings = create<SettingsState>((set, get) => ({
 
   load: async () => {
     try {
-      const raw = await AsyncStorage.getItem('mentis:settings')
+      const raw    = await AsyncStorage.getItem('mentis:settings')
       const stored = raw ? JSON.parse(raw) : {}
-      const key    = await SecureStore.getItemAsync('mentis:anthropic_key').catch(() => '')
-      const orKey  = await SecureStore.getItemAsync('mentis:openrouter_key').catch(() => '')
-      const ghKey  = await SecureStore.getItemAsync('mentis:github_token').catch(() => '')
-      set({ ...DEFAULTS, ...stored, anthropicKey: key ?? '', openrouterKey: orKey ?? '', githubToken: ghKey ?? '', loaded: true })
+      const secure: Partial<Settings> = {}
+      for (const k of SECURE_KEYS) {
+        secure[k] = (await SecureStore.getItemAsync(SECURE_STORE_ID[k]).catch(() => '')) ?? ''
+      }
+      set({ ...DEFAULTS, ...stored, ...secure, loaded: true })
     } catch {
       set({ loaded: true })
     }
@@ -85,14 +113,17 @@ export const useSettings = create<SettingsState>((set, get) => ({
   save: async (patch) => {
     const next = { ...get(), ...patch }
     set(next)
-    const { anthropicKey, openrouterKey, githubToken, loaded, load, save, ...rest } = next
-    await AsyncStorage.setItem('mentis:settings', JSON.stringify(rest))
-    if (patch.anthropicKey !== undefined)
-      await SecureStore.setItemAsync('mentis:anthropic_key', patch.anthropicKey)
-    if (patch.openrouterKey !== undefined)
-      await SecureStore.setItemAsync('mentis:openrouter_key', patch.openrouterKey)
-    if (patch.githubToken !== undefined)
-      await SecureStore.setItemAsync('mentis:github_token', patch.githubToken)
+    // Persist non-secure fields to AsyncStorage
+    const { loaded, load, save, ...allSettings } = next
+    const toStore = { ...allSettings } as Record<string, unknown>
+    for (const k of SECURE_KEYS) delete toStore[k]
+    await AsyncStorage.setItem('mentis:settings', JSON.stringify(toStore))
+    // Persist secure fields to SecureStore
+    for (const k of SECURE_KEYS) {
+      if ((patch as Record<string, unknown>)[k] !== undefined) {
+        await SecureStore.setItemAsync(SECURE_STORE_ID[k], (next[k] as string) ?? '')
+      }
+    }
   },
 }))
 

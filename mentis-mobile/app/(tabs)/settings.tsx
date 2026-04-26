@@ -4,29 +4,20 @@ import {
   ScrollView, StyleSheet, Switch, Text, TextInput,
   TouchableOpacity, View,
 } from 'react-native'
-import { useSettings } from '../../store'
+import { useSettings, Provider } from '../../store'
 import { checkHealth } from '../../services/mentisClient'
 import { verifyToken, listRepos, GithubRepo } from '../../services/githubClient'
+import { PROVIDERS, DEFAULT_MODEL } from '../../services/providersConfig'
 import { C } from '../../constants/theme'
-
-const CLAUDE_MODELS = ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001']
-const OR_MODELS = [
-  'google/gemini-2.0-flash-exp:free',
-  'meta-llama/llama-4-scout:free',
-  'deepseek/deepseek-r1:free',
-  'mistralai/mistral-7b-instruct:free',
-  'microsoft/phi-4:free',
-  'qwen/qwen3-30b-a3b:free',
-]
 
 export default function SettingsScreen() {
   const settings = useSettings()
-  const [testing, setTesting]           = useState(false)
-  const [testResult, setTestResult]     = useState<boolean | null>(null)
-  const [ghVerifying, setGhVerifying]   = useState(false)
-  const [ghUser, setGhUser]             = useState<string | null>(null)
-  const [repos, setRepos]               = useState<GithubRepo[]>([])
-  const [showRepos, setShowRepos]       = useState(false)
+  const [testing, setTesting]         = useState(false)
+  const [testResult, setTestResult]   = useState<boolean | null>(null)
+  const [ghVerifying, setGhVerifying] = useState(false)
+  const [ghUser, setGhUser]           = useState<string | null>(null)
+  const [repos, setRepos]             = useState<GithubRepo[]>([])
+  const [showRepos, setShowRepos]     = useState(false)
 
   const isDesktop = settings.syncMode === 'desktop'
 
@@ -37,11 +28,6 @@ export default function SettingsScreen() {
     setTestResult(ok)
     setTesting(false)
     if (!ok) Alert.alert('Connection failed', `Could not reach ${settings.desktopHost}.\n\nMake sure:\n• Mentis Desktop is running\n• You're on the same Wi-Fi\n• The IP address is correct`)
-  }
-
-  const toggleSyncMode = (val: boolean) => {
-    settings.save({ syncMode: val ? 'desktop' : 'standalone' })
-    setTestResult(null)
   }
 
   const verifyGithub = async () => {
@@ -63,6 +49,22 @@ export default function SettingsScreen() {
     setGhVerifying(false)
   }
 
+  const provDef = PROVIDERS.find(p => p.id === settings.provider)
+
+  // Get key field name and placeholder for current provider
+  type ProviderInfo = { keyField: keyof typeof settings; placeholder: string; hint: string }
+  const providerInfo: Partial<Record<Provider, ProviderInfo>> = {
+    anthropic:  { keyField: 'anthropicKey',  placeholder: 'sk-ant-api03-…',  hint: 'console.anthropic.com' },
+    openai:     { keyField: 'openaiKey',     placeholder: 'sk-…',            hint: 'platform.openai.com/api-keys' },
+    gemini:     { keyField: 'geminiKey',     placeholder: 'AIza…',           hint: 'aistudio.google.com/apikey' },
+    grok:       { keyField: 'grokKey',       placeholder: 'xai-…',           hint: 'console.x.ai' },
+    kimi:       { keyField: 'kimiKey',       placeholder: 'sk-…',            hint: 'platform.moonshot.cn' },
+    glm:        { keyField: 'glmKey',        placeholder: '…',               hint: 'open.bigmodel.cn (GLM-4 Flash is free)' },
+    openrouter: { keyField: 'openrouterKey', placeholder: 'sk-or-v1-…',      hint: 'openrouter.ai/settings/keys (free account ok)' },
+  }
+
+  const pInfo = providerInfo[settings.provider as Provider]
+
   return (
     <SafeAreaView style={styles.root}>
       <View style={styles.header}>
@@ -72,12 +74,15 @@ export default function SettingsScreen() {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
 
-          {/* Sync mode */}
+          {/* Sync mode toggle */}
           <Section title="Sync Mode">
-            <Row label="Desktop Sync" hint={isDesktop ? 'Using your PC as AI backend' : 'Connecting directly to Anthropic'}>
+            <Row
+              label="Desktop Sync"
+              hint={isDesktop ? 'Using your PC as AI backend' : 'Phone connects directly to AI APIs'}
+            >
               <Switch
                 value={isDesktop}
-                onValueChange={toggleSyncMode}
+                onValueChange={val => { settings.save({ syncMode: val ? 'desktop' : 'standalone' }); setTestResult(null) }}
                 trackColor={{ false: C.border2, true: C.accent + '88' }}
                 thumbColor={isDesktop ? C.accent : C.muted}
               />
@@ -85,9 +90,9 @@ export default function SettingsScreen() {
           </Section>
 
           {isDesktop ? (
-            /* ── Desktop sync mode ─────────────────────────────────────────── */
+            /* ── Desktop connection ──────────────────────────────────────── */
             <Section title="Desktop Connection">
-              <Field label="Desktop IP : Port" hint="Find in Mentis Desktop → Settings → About">
+              <Field label="Desktop IP : Port" hint="Find in Mentis Desktop → Settings">
                 <TextInput
                   style={styles.input}
                   value={settings.desktopHost}
@@ -98,7 +103,6 @@ export default function SettingsScreen() {
                   keyboardType="url"
                 />
               </Field>
-
               <TouchableOpacity
                 style={[styles.btn, testing && styles.btnDisabled]}
                 onPress={testConnection}
@@ -108,7 +112,6 @@ export default function SettingsScreen() {
                   {testing ? 'Testing…' : testResult === true ? '✓ Connected' : testResult === false ? '✗ Failed — tap to retry' : 'Test Connection'}
                 </Text>
               </TouchableOpacity>
-
               {testResult === true && (
                 <View style={styles.successBanner}>
                   <Text style={styles.successText}>Connected to Mentis Desktop</Text>
@@ -116,92 +119,95 @@ export default function SettingsScreen() {
               )}
             </Section>
           ) : (
-            /* ── Standalone mode ───────────────────────────────────────────── */
+            /* ── Standalone mode ─────────────────────────────────────────── */
             <>
-              {/* Provider selector */}
+              {/* Provider chips */}
               <Section title="Provider">
-                <View style={styles.chipRow}>
-                  {(['anthropic', 'openrouter'] as const).map(p => (
-                    <TouchableOpacity
-                      key={p}
-                      style={[styles.chip, settings.provider === p && styles.chipActive]}
-                      onPress={() => settings.save({ provider: p })}
-                    >
-                      <Text style={[styles.chipText, settings.provider === p && styles.chipTextActive]}>
-                        {p === 'anthropic' ? 'Anthropic' : 'OpenRouter'}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <View style={styles.chipRow}>
+                    {PROVIDERS.filter(p => p.id !== 'ollama').map(p => {
+                      const active = settings.provider === p.id
+                      return (
+                        <TouchableOpacity
+                          key={p.id}
+                          style={[
+                            styles.provChip,
+                            active && { borderColor: p.color + 'aa', backgroundColor: p.color + '22' },
+                          ]}
+                          onPress={() => settings.save({
+                            provider: p.id as Provider,
+                            model: DEFAULT_MODEL[p.id] ?? '',
+                          })}
+                        >
+                          <Text style={[styles.provIcon, { color: active ? p.color : C.muted }]}>{p.icon}</Text>
+                          <Text style={[styles.provLabel, { color: active ? p.color : C.muted }]}>{p.label}</Text>
+                        </TouchableOpacity>
+                      )
+                    })}
+                  </View>
+                </ScrollView>
+
+                {/* Ollama row */}
+                <TouchableOpacity
+                  style={[styles.ollamaRow, settings.provider === 'ollama' && styles.ollamaRowActive]}
+                  onPress={() => settings.save({ provider: 'ollama', model: settings.ollamaUrl ? settings.model : 'llama3' })}
+                >
+                  <Text style={[styles.provIcon, { color: settings.provider === 'ollama' ? C.muted2 : C.muted }]}>⬇</Text>
+                  <Text style={[styles.provLabel, { color: settings.provider === 'ollama' ? C.textDim : C.muted }]}>Ollama (local)</Text>
+                  {settings.provider === 'ollama' && <Text style={{ color: C.muted, fontSize: 12, marginLeft: 'auto' }}>selected</Text>}
+                </TouchableOpacity>
               </Section>
 
-              {settings.provider === 'openrouter' ? (
-                /* ── OpenRouter ──────────────────────────────────────────── */
-                <Section title="OpenRouter" >
-                  <Field label="API Key" hint="Free at openrouter.ai/settings/keys  ·  sk-or-v1-…">
+              {/* Provider API key */}
+              {settings.provider !== 'ollama' && pInfo && (
+                <Section title={`${provDef?.label ?? 'Provider'} API Key`}>
+                  <Field label="API Key" hint={pInfo.hint}>
                     <TextInput
                       style={styles.input}
-                      value={settings.openrouterKey}
-                      onChangeText={v => settings.save({ openrouterKey: v })}
-                      placeholder="sk-or-v1-…"
+                      value={(settings[pInfo.keyField] as string) ?? ''}
+                      onChangeText={v => settings.save({ [pInfo.keyField]: v } as Partial<typeof settings>)}
+                      placeholder={pInfo.placeholder}
                       placeholderTextColor={C.muted}
                       secureTextEntry
                       autoCapitalize="none"
                     />
-                  </Field>
-                  <Field label="Free model">
-                    <View style={styles.chipRow}>
-                      {OR_MODELS.map(m => (
-                        <TouchableOpacity
-                          key={m}
-                          style={[styles.chip, settings.model === m && styles.chipActive]}
-                          onPress={() => settings.save({ model: m })}
-                        >
-                          <Text style={[styles.chipText, settings.model === m && styles.chipTextActive]}>
-                            {m.split('/')[1]?.replace(':free', '') ?? m}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </Field>
-                </Section>
-              ) : (
-                /* ── Anthropic ───────────────────────────────────────────── */
-                <Section title="Anthropic">
-                  <Field label="API Key" hint="Get from console.anthropic.com">
-                    <TextInput
-                      style={styles.input}
-                      value={settings.anthropicKey}
-                      onChangeText={v => settings.save({ anthropicKey: v })}
-                      placeholder="sk-ant-api03-…"
-                      placeholderTextColor={C.muted}
-                      secureTextEntry
-                      autoCapitalize="none"
-                    />
-                  </Field>
-                  <Field label="Model">
-                    <View style={styles.chipRow}>
-                      {CLAUDE_MODELS.map(m => (
-                        <TouchableOpacity
-                          key={m}
-                          style={[styles.chip, settings.model === m && styles.chipActive]}
-                          onPress={() => settings.save({ model: m })}
-                        >
-                          <Text style={[styles.chipText, settings.model === m && styles.chipTextActive]}>
-                            {m.replace('claude-', '').replace('-4-7', ' Opus').replace('-4-6', ' Sonnet').replace('-4-5-20251001', ' Haiku')}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
                   </Field>
                 </Section>
               )}
+
+              {/* Ollama URL */}
+              {settings.provider === 'ollama' && (
+                <Section title="Ollama">
+                  <Field label="Server URL" hint="Default: http://localhost:11434/v1">
+                    <TextInput
+                      style={styles.input}
+                      value={settings.ollamaUrl}
+                      onChangeText={v => settings.save({ ollamaUrl: v })}
+                      placeholder="http://192.168.1.x:11434/v1"
+                      placeholderTextColor={C.muted}
+                      autoCapitalize="none"
+                      keyboardType="url"
+                    />
+                  </Field>
+                </Section>
+              )}
+
+              {/* Selected model display */}
+              <Section title="Active Model">
+                <View style={styles.modelDisplay}>
+                  <Text style={styles.modelDisplayIcon}>{provDef?.icon ?? '◈'}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.modelDisplayName} numberOfLines={1}>{settings.model || '(none selected)'}</Text>
+                    <Text style={styles.modelDisplayHint}>Tap the model button in the chat header to change</Text>
+                  </View>
+                </View>
+              </Section>
             </>
           )}
 
           {/* GitHub connector */}
           <Section title="GitHub Connector">
-            <Field label="Personal Access Token" hint="github.com/settings/tokens — needs repo scope">
+            <Field label="Personal Access Token" hint="github.com/settings/tokens — repo scope required">
               <TextInput
                 style={styles.input}
                 value={settings.githubToken}
@@ -219,12 +225,12 @@ export default function SettingsScreen() {
               disabled={ghVerifying}
             >
               <Text style={styles.btnText}>
-                {ghVerifying ? 'Connecting…' : ghUser ? `✓ ${ghUser} — tap to refresh repos` : 'Connect GitHub'}
+                {ghVerifying ? 'Connecting…' : ghUser ? `✓ ${ghUser} — tap to refresh` : 'Connect GitHub'}
               </Text>
             </TouchableOpacity>
 
             {showRepos && repos.length > 0 && (
-              <Field label="Select repo">
+              <Field label="Select repository">
                 <ScrollView style={styles.repoList} nestedScrollEnabled>
                   {repos.map(r => (
                     <TouchableOpacity
@@ -236,13 +242,9 @@ export default function SettingsScreen() {
                         <Text style={[styles.repoName, settings.githubRepo === r.full_name && { color: C.accentL }]}>
                           {r.full_name}
                         </Text>
-                        {r.description && (
-                          <Text style={styles.repoDesc} numberOfLines={1}>{r.description}</Text>
-                        )}
+                        {r.description && <Text style={styles.repoDesc} numberOfLines={1}>{r.description}</Text>}
                       </View>
-                      {settings.githubRepo === r.full_name && (
-                        <Text style={styles.repoCheck}>✓</Text>
-                      )}
+                      {settings.githubRepo === r.full_name && <Text style={styles.repoCheck}>✓</Text>}
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
@@ -277,9 +279,9 @@ export default function SettingsScreen() {
           {/* About */}
           <Section title="About">
             {[
-              ['App',     'Mentis Mobile v1.0.0'],
-              ['Sync',    settings.syncMode === 'desktop' ? `Desktop @ ${settings.desktopHost}` : 'Standalone'],
-              ['Session', 'Sessions sync via ~/.mentis/sessions/'],
+              ['App',      'Mentis Mobile v1.0.0'],
+              ['Provider', `${provDef?.label ?? settings.provider} · ${settings.model || '—'}`],
+              ['Sync',     settings.syncMode === 'desktop' ? `Desktop @ ${settings.desktopHost}` : 'Standalone'],
             ].map(([k, v]) => (
               <View key={k} style={styles.aboutRow}>
                 <Text style={styles.aboutKey}>{k}</Text>
@@ -294,6 +296,8 @@ export default function SettingsScreen() {
     </SafeAreaView>
   )
 }
+
+// ── Sub-components ────────────────────────────────────────────────────────────
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -326,12 +330,14 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
   )
 }
 
+// ── Styles ────────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
   root:          { flex: 1, backgroundColor: C.bg },
   header:        { paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.panel },
   headerTitle:   { fontSize: 16, fontWeight: '700', color: C.text },
   scroll:        { padding: 16, gap: 20 },
-  section:       { gap: 12 },
+  section:       { gap: 10 },
   sectionTitle:  { fontSize: 11, fontWeight: '600', color: C.muted, textTransform: 'uppercase', letterSpacing: 0.8 },
   field:         { gap: 6 },
   fieldLabel:    { fontSize: 13, fontWeight: '500', color: C.textDim },
@@ -343,13 +349,21 @@ const styles = StyleSheet.create({
   btnText:       { color: '#fff', fontSize: 14, fontWeight: '600' },
   successBanner: { backgroundColor: C.green + '22', borderWidth: 1, borderColor: C.green + '44', borderRadius: 8, padding: 10 },
   successText:   { color: C.green, fontSize: 12, textAlign: 'center' },
-  chipRow:       { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip:          { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: C.border2, backgroundColor: C.panel2 },
-  chipActive:    { borderColor: C.accent + '66', backgroundColor: C.accent + '22' },
-  chipText:      { fontSize: 12, color: C.muted },
-  chipTextActive: { color: C.accentL, fontWeight: '600' },
+
+  chipRow:       { flexDirection: 'row', gap: 8 },
+  provChip:      { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 11, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5, borderColor: C.border2, backgroundColor: C.panel2 },
+  provIcon:      { fontSize: 13 },
+  provLabel:     { fontSize: 12, fontWeight: '600' },
+  ollamaRow:     { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: C.border2, backgroundColor: C.panel2, marginTop: 4 },
+  ollamaRowActive: { borderColor: C.border, backgroundColor: C.panel },
+
+  modelDisplay:      { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.panel2, borderRadius: 10, borderWidth: 1, borderColor: C.border2, paddingHorizontal: 14, paddingVertical: 12 },
+  modelDisplayIcon:  { fontSize: 18, color: C.accent },
+  modelDisplayName:  { fontSize: 13, color: C.text, fontFamily: 'Courier New' },
+  modelDisplayHint:  { fontSize: 11, color: C.muted, marginTop: 2 },
+
   aboutRow:        { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
-  aboutKey:        { fontSize: 12, color: C.muted, width: 60 },
+  aboutKey:        { fontSize: 12, color: C.muted, width: 64 },
   aboutVal:        { fontSize: 12, color: C.textDim, flex: 1, textAlign: 'right' },
   repoList:        { maxHeight: 200, borderWidth: 1, borderColor: C.border2, borderRadius: 10, backgroundColor: C.panel2 },
   repoItem:        { padding: 12, borderBottomWidth: 1, borderBottomColor: C.border, flexDirection: 'row', alignItems: 'center' },
