@@ -42,10 +42,25 @@ export default function App() {
     })
   }, [])
 
-  const loadFeedFromHistory = (hist: Array<{ role: string; content?: string }>) => {
+  const loadFeedFromHistory = (hist: Array<{ role: string; content?: unknown }>) => {
     const items: FeedItem[] = hist
-      .filter(m => (m.role === 'user' || m.role === 'assistant') && m.content)
-      .map(m => ({ id: uid(), role: m.role as 'user' | 'assistant', content: m.content!, timestamp: Date.now() }))
+      .filter(m => m.role === 'user' || m.role === 'assistant')
+      .map(m => {
+        // content may be a ContentBlock[] when the message had images
+        let text = ''
+        let images: string[] | undefined
+        if (typeof m.content === 'string') {
+          text = m.content
+        } else if (Array.isArray(m.content)) {
+          text   = (m.content as Array<{ type: string; text?: string; data?: string; mediaType?: string }>)
+            .filter(b => b.type === 'text').map(b => b.text ?? '').join('')
+          images = (m.content as Array<{ type: string; data?: string; mediaType?: string }>)
+            .filter(b => b.type === 'image' && b.data)
+            .map(b => `data:${b.mediaType};base64,${b.data}`)
+        }
+        return { id: uid(), role: m.role as 'user' | 'assistant', content: text, timestamp: Date.now(), images }
+      })
+      .filter(m => m.content || m.images?.length)
     setFeed(items)
   }
 

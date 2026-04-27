@@ -97,7 +97,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             </div>
           )}
           {/* Text bubble — only show if there's text */}
-          {message.content && (
+          {typeof message.content === 'string' && message.content && (
             <div className="px-4 py-2.5 rounded-2xl rounded-tr-sm bg-accent/15 border border-accent/25 text-[#ddd] text-sm leading-relaxed whitespace-pre-wrap">
               {message.content}
             </div>
@@ -113,7 +113,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         <span className="text-[10px] text-purple-300 font-bold">M</span>
       </div>
       <div className="flex-1 min-w-0">
-        {message.content ? (
+        {typeof message.content === 'string' && message.content ? (
           <div className="prose text-sm text-[#ddd]">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
