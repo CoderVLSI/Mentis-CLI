@@ -131,6 +131,25 @@ export default function InputBar({ disabled, streaming, model, provider, planMod
     })
   }
 
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const imageItems = Array.from(e.clipboardData.items).filter(item => item.type.startsWith('image/'))
+    if (imageItems.length === 0) return
+    e.preventDefault()
+    imageItems.forEach(item => {
+      const file = item.getAsFile()
+      if (!file) return
+      const reader = new FileReader()
+      reader.onload = () => {
+        const dataUrl  = reader.result as string
+        const base64   = dataUrl.split(',')[1]
+        const mediaType = (file.type || 'image/png') as ImageAttachment['mediaType']
+        const name     = `screenshot_${Date.now()}.png`
+        setAttachments(prev => [...prev, { base64, mediaType, name, preview: URL.createObjectURL(file) }])
+      }
+      reader.readAsDataURL(file)
+    })
+  }
+
   const submit = () => {
     const t = text.trim()
     if (!t && attachments.length === 0) return
@@ -208,6 +227,7 @@ export default function InputBar({ disabled, streaming, model, provider, planMod
           value={text}
           onChange={e => handleChange(e.target.value)}
           onKeyDown={handleKey}
+          onPaste={handlePaste}
           placeholder={attachments.length ? 'Add a message… (or just send the image)' : 'Ask anything… (/ for commands)'}
           disabled={streaming}
           rows={1}

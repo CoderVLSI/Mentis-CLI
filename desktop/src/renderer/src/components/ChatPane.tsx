@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ChatMessage, FeedItem, ToolEvent, ToolSummaryMessage } from '../types'
@@ -30,11 +30,20 @@ function toolSummaryText(names: string[]): string {
 }
 
 export default function ChatPane({ feed, tools, thinking, onApprove }: Props) {
-  const bottomRef = useRef<HTMLDivElement>(null)
+  const bottomRef              = useRef<HTMLDivElement>(null)
+  const [lightbox, setLightbox] = useState<string | null>(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [feed, tools, thinking])
+
+  // Close lightbox on Escape
+  useEffect(() => {
+    if (!lightbox) return
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setLightbox(null) }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [lightbox])
 
   const toolList = Array.from(tools.values())
 
@@ -47,7 +56,7 @@ export default function ChatPane({ feed, tools, thinking, onApprove }: Props) {
           const s = item as ToolSummaryMessage
           return <ToolSummaryLine key={s.id} names={s.names} count={s.count} />
         }
-        return <MessageBubble key={item.id} message={item as ChatMessage} />
+        return <MessageBubble key={item.id} message={item as ChatMessage} onImageClick={setLightbox} />
       })}
 
       {toolList.length > 0 && (
@@ -58,6 +67,25 @@ export default function ChatPane({ feed, tools, thinking, onApprove }: Props) {
 
       {thinking && <ThinkingIndicator />}
       <div ref={bottomRef} />
+
+      {/* Lightbox overlay */}
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 cursor-zoom-out"
+          onClick={() => setLightbox(null)}
+        >
+          <button
+            className="absolute top-4 right-4 w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white/70 hover:text-white transition-colors"
+            onClick={() => setLightbox(null)}
+          >✕</button>
+          <img
+            src={lightbox}
+            alt="Preview"
+            className="max-w-[92vw] max-h-[92vh] object-contain rounded-lg shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   )
 }
@@ -76,7 +104,7 @@ function ToolSummaryLine({ names, count }: { names: string[]; count: number }) {
   )
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+function MessageBubble({ message, onImageClick }: { message: ChatMessage; onImageClick: (src: string) => void }) {
   const isUser = message.role === 'user'
 
   if (isUser) {
@@ -91,7 +119,8 @@ function MessageBubble({ message }: { message: ChatMessage }) {
                   key={i}
                   src={src}
                   alt=""
-                  className="h-32 max-w-[200px] object-cover rounded-xl border border-accent/20"
+                  onClick={() => onImageClick(src)}
+                  className="h-32 max-w-[200px] object-cover rounded-xl border border-accent/20 cursor-zoom-in hover:border-accent/60 transition-all hover:scale-[1.02]"
                 />
               ))}
             </div>
