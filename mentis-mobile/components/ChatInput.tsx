@@ -1,9 +1,17 @@
 import { useRef, useState } from 'react'
 import {
-  ScrollView, StyleSheet, Text, TextInput,
+  Alert, Image, ScrollView, StyleSheet, Text, TextInput,
   TouchableOpacity, View,
 } from 'react-native'
+import * as ImagePicker from 'expo-image-picker'
 import { C } from '../constants/theme'
+
+export interface ImageAttachment {
+  base64:    string
+  mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+  name:      string
+  uri:       string   // local URI for preview
+}
 
 const SLASH_COMMANDS = [
   { cmd: '/plan',   desc: 'Switch to PLAN mode'   },
@@ -13,23 +21,23 @@ const SLASH_COMMANDS = [
 ]
 
 interface Props {
-  onSend:       (text: string) => void
+  onSend:       (text: string, images?: ImageAttachment[]) => void
   onCancel:     () => void
   streaming:    boolean
-  githubRepo?:  string    // connected repo — shown as chip
-  onRepoPick?:  () => void  // opens repo picker sheet
+  githubRepo?:  string
+  onRepoPick?:  () => void
 }
 
 export default function ChatInput({ onSend, onCancel, streaming, githubRepo, onRepoPick }: Props) {
-  const [text, setText]       = useState('')
+  const [text, setText]               = useState('')
   const [suggestions, setSuggestions] = useState<typeof SLASH_COMMANDS>([])
+  const [attachments, setAttachments] = useState<ImageAttachment[]>([])
   const inputRef = useRef<TextInput>(null)
 
   const handleChange = (val: string) => {
     setText(val)
     if (val.startsWith('/')) {
-      const filtered = SLASH_COMMANDS.filter(c => c.cmd.startsWith(val.toLowerCase()))
-      setSuggestions(filtered)
+      setSuggestions(SLASH_COMMANDS.filter(c => c.cmd.startsWith(val.toLowerCase())))
     } else {
       setSuggestions([])
     }
@@ -43,10 +51,50 @@ export default function ChatInput({ onSend, onCancel, streaming, githubRepo, onR
 
   const submit = () => {
     const t = text.trim()
-    if (!t || streaming) return
+    if (!t && attachments.length === 0) return
+    if (streaming) return
     setText('')
     setSuggestions([])
-    onSend(t)
+    const imgs = attachments.length ? [...attachments] : undefined
+    setAttachments([])
+    onSend(t || '(see attached image)', imgs)
+  }
+
+  const pickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Allow photo library access to attach images.')
+      return
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsMultipleSelection: true,
+      quality: 0.85,
+      base64: true,
+      exif: false,
+    })
+    if (result.canceled) return
+    const newAttachments: ImageAttachment[] = result.assets
+      .filter(a => a.base64)
+      .map(a => {
+        const ext = (a.fileName ?? a.uri).split('.').pop()?.toLowerCase() ?? 'jpg'
+        const typeMap: Record<string, ImageAttachment['mediaType']> = {
+          jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+          gif: 'image/gif',  webp: 'image/webp',
+        }
+        return {
+          base64:    a.base64!,
+          mediaType: typeMap[ext] ?? 'image/jpeg',
+          name:      a.fileName ?? `image_${Date.now()}.jpg`,
+          uri:       a.uri,
+        }
+      })
+    setAttachments(prev => [...prev, ...newAttachments])
+    inputRef.current?.focus()
+  }
+
+  const removeAttachment = (idx: number) => {
+    setAttachments(prev => prev.filter((_, i) => i !== idx))
   }
 
   return (
@@ -67,25 +115,41 @@ export default function ChatInput({ onSend, onCancel, streaming, githubRepo, onR
         </View>
       )}
 
-      {/* Repo chips row — shown whenever GitHub is configured */}
+      {/* Image preview strip */}
+      {attachments.length > 0 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.previewScroll}
+          contentContainerStyle={styles.previewContent}
+        >
+          {attachments.map((att, i) => (
+            <View key={i} style={styles.previewItem}>
+              <Image source={{ uri: att.uri }} style={styles.previewImg} resizeMode="cover" />
+              <TouchableOpacity style={styles.previewRemove} onPress={() => removeAttachment(i)}>
+                <Text style={styles.previewRemoveTxt}>✕</Text>
+              </TouchableOpacity>
+              <Text style={styles.previewName} numberOfLines={1}>{att.name}</Text>
+            </View>
+          ))}
+        </ScrollView>
+      )}
+
+      {/* Repo chips row */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
         style={styles.chipsScroll}
         contentContainerStyle={styles.chipsContent}
       >
-        {/* + button always shown */}
         <TouchableOpacity style={styles.addBtn} onPress={onRepoPick}>
           <Text style={styles.addBtnText}>+</Text>
         </TouchableOpacity>
 
-        {/* Connected repo chip */}
         {githubRepo ? (
           <TouchableOpacity style={styles.repoChip} onPress={onRepoPick}>
             <Text style={styles.repoChipIcon}>⬡</Text>
-            <Text style={styles.repoChipText} numberOfLines={1}>
-              {githubRepo}
-            </Text>
+            <Text style={styles.repoChipText} numberOfLines={1}>{githubRepo}</Text>
           </TouchableOpacity>
         ) : (
           <TouchableOpacity style={styles.noRepoChip} onPress={onRepoPick}>
@@ -96,12 +160,26 @@ export default function ChatInput({ onSend, onCancel, streaming, githubRepo, onR
 
       {/* Text input row */}
       <View style={styles.inputRow}>
+        {/* Image attach button */}
+        <TouchableOpacity
+          style={[styles.attachBtn, attachments.length > 0 && styles.attachBtnActive]}
+          onPress={pickImage}
+          disabled={streaming}
+        >
+          <Text style={styles.attachIcon}>🖼</Text>
+          {attachments.length > 0 && (
+            <View style={styles.attachBadge}>
+              <Text style={styles.attachBadgeTxt}>{attachments.length}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
         <TextInput
           ref={inputRef}
           style={styles.input}
           value={text}
           onChangeText={handleChange}
-          placeholder="Describe what you want to build…"
+          placeholder={attachments.length ? 'Add a message… or just send the image' : 'Describe what you want to build…'}
           placeholderTextColor={C.muted}
           multiline
           maxLength={4000}
@@ -114,9 +192,9 @@ export default function ChatInput({ onSend, onCancel, streaming, githubRepo, onR
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
-            style={[styles.btn, styles.sendBtn, !text.trim() && styles.btnDisabled]}
+            style={[styles.btn, styles.sendBtn, (!text.trim() && attachments.length === 0) && styles.btnDisabled]}
             onPress={submit}
-            disabled={!text.trim()}
+            disabled={!text.trim() && attachments.length === 0}
           >
             <Text style={styles.sendArrow}>↑</Text>
           </TouchableOpacity>
@@ -127,32 +205,47 @@ export default function ChatInput({ onSend, onCancel, streaming, githubRepo, onR
 }
 
 const styles = StyleSheet.create({
-  wrapper:        { borderTopWidth: 1, borderTopColor: C.border, backgroundColor: C.panel },
+  wrapper:          { borderTopWidth: 1, borderTopColor: C.border, backgroundColor: C.panel },
 
-  suggestions:    { borderBottomWidth: 1, borderBottomColor: C.border },
-  suggestionRow:  { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 10 },
-  suggestionCmd:  { fontFamily: 'Courier New', fontSize: 13, color: C.accentL, width: 70 },
-  suggestionDesc: { fontSize: 12, color: C.muted2 },
+  suggestions:      { borderBottomWidth: 1, borderBottomColor: C.border },
+  suggestionRow:    { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 10 },
+  suggestionCmd:    { fontFamily: 'Courier New', fontSize: 13, color: C.accentL, width: 70 },
+  suggestionDesc:   { fontSize: 12, color: C.muted2 },
 
-  chipsScroll:    { flexGrow: 0 },
-  chipsContent:   { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 4 },
+  previewScroll:    { flexGrow: 0, borderBottomWidth: 1, borderBottomColor: C.border },
+  previewContent:   { flexDirection: 'row', padding: 10, gap: 8 },
+  previewItem:      { width: 72, position: 'relative' },
+  previewImg:       { width: 72, height: 72, borderRadius: 8, borderWidth: 1, borderColor: C.border2 },
+  previewRemove:    { position: 'absolute', top: -6, right: -6, width: 18, height: 18, borderRadius: 9, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center' },
+  previewRemoveTxt: { fontSize: 9, color: '#fff', fontWeight: '700' },
+  previewName:      { fontSize: 9, color: C.muted, marginTop: 3, textAlign: 'center' },
 
-  addBtn:         { width: 28, height: 28, borderRadius: 14, borderWidth: 1.5, borderColor: C.border2, alignItems: 'center', justifyContent: 'center', backgroundColor: C.panel2 },
-  addBtnText:     { fontSize: 18, color: C.muted2, lineHeight: 22, fontWeight: '300' },
+  chipsScroll:      { flexGrow: 0 },
+  chipsContent:     { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 4 },
 
-  repoChip:       { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16, borderWidth: 1, borderColor: C.accent + '44', backgroundColor: C.accent + '14' },
-  repoChipIcon:   { fontSize: 11, color: C.accentL },
-  repoChipText:   { fontSize: 12, color: C.accentL, fontFamily: 'Courier New', maxWidth: 220 },
+  addBtn:           { width: 28, height: 28, borderRadius: 14, borderWidth: 1.5, borderColor: C.border2, alignItems: 'center', justifyContent: 'center', backgroundColor: C.panel2 },
+  addBtnText:       { fontSize: 18, color: C.muted2, lineHeight: 22, fontWeight: '300' },
 
-  noRepoChip:     { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16, borderWidth: 1, borderColor: C.border2, borderStyle: 'dashed' },
-  noRepoText:     { fontSize: 12, color: C.muted },
+  repoChip:         { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16, borderWidth: 1, borderColor: C.accent + '44', backgroundColor: C.accent + '14' },
+  repoChipIcon:     { fontSize: 11, color: C.accentL },
+  repoChipText:     { fontSize: 12, color: C.accentL, fontFamily: 'Courier New', maxWidth: 220 },
 
-  inputRow:       { flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 12, paddingTop: 4, paddingBottom: 10 },
-  input:          { flex: 1, backgroundColor: C.panel2, borderWidth: 1, borderColor: C.border2, borderRadius: 14, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 10, color: C.text, fontSize: 14, maxHeight: 120, lineHeight: 20 },
-  btn:            { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 1 },
-  sendBtn:        { backgroundColor: C.accent },
-  stopBtn:        { backgroundColor: C.red + 'cc' },
-  btnDisabled:    { opacity: 0.3 },
-  sendArrow:      { color: '#fff', fontSize: 18, fontWeight: '700', lineHeight: 22 },
-  stopIcon:       { width: 12, height: 12, borderRadius: 2, backgroundColor: '#fff' },
+  noRepoChip:       { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16, borderWidth: 1, borderColor: C.border2, borderStyle: 'dashed' },
+  noRepoText:       { fontSize: 12, color: C.muted },
+
+  inputRow:         { flexDirection: 'row', alignItems: 'flex-end', gap: 6, paddingHorizontal: 10, paddingTop: 4, paddingBottom: 10 },
+
+  attachBtn:        { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 1, backgroundColor: C.panel2, borderWidth: 1, borderColor: C.border2 },
+  attachBtnActive:  { borderColor: C.accent + '66', backgroundColor: C.accent + '18' },
+  attachIcon:       { fontSize: 16 },
+  attachBadge:      { position: 'absolute', top: -4, right: -4, width: 14, height: 14, borderRadius: 7, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center' },
+  attachBadgeTxt:   { fontSize: 8, color: '#fff', fontWeight: '700' },
+
+  input:            { flex: 1, backgroundColor: C.panel2, borderWidth: 1, borderColor: C.border2, borderRadius: 14, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 10, color: C.text, fontSize: 14, maxHeight: 120, lineHeight: 20 },
+  btn:              { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 1 },
+  sendBtn:          { backgroundColor: C.accent },
+  stopBtn:          { backgroundColor: C.red + 'cc' },
+  btnDisabled:      { opacity: 0.3 },
+  sendArrow:        { color: '#fff', fontSize: 18, fontWeight: '700', lineHeight: 22 },
+  stopIcon:         { width: 12, height: 12, borderRadius: 2, backgroundColor: '#fff' },
 })

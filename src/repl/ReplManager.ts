@@ -2,7 +2,7 @@ import inquirer from 'inquirer';
 import chalk from 'chalk';
 import ora from 'ora';
 import { ConfigManager } from '../config/ConfigManager';
-import { ModelClient, ChatMessage } from '../llm/ModelInterface';
+import { ModelClient, ChatMessage, ImageAttachment, buildUserContent } from '../llm/ModelInterface';
 import { OpenAIClient } from '../llm/OpenAIClient';
 
 import { ContextManager } from '../context/ContextManager';
@@ -84,6 +84,7 @@ const ALL_COMMANDS = [
     { value: '/build',   name: '/build        Execute the agreed plan' },
     { value: '/mcp',      name: '/mcp          Manage MCP servers' },
     { value: '/add',      name: '/add <file>   Add file to context' },
+    { value: '/image',    name: '/image <path> Attach image to next message (multimodal)' },
     { value: '/drop',     name: '/drop <file>  Remove file from context' },
     { value: '/resume',   name: '/resume       Resume last session' },
     { value: '/search',   name: '/search       Search codebase' },
@@ -129,6 +130,7 @@ export class ReplManager {
     private agentManager: AgentManager;
     private sidekickManager: SidekickManager;
     private memoryManager: MemoryManager;
+    private pendingImages: ImageAttachment[] = [];
     private sessionAllowedTools: Set<string> = new Set(); // tools allowed for whole session
     private sessionDeniedTools: Set<string> = new Set();  // tools denied for whole session
 
@@ -581,6 +583,39 @@ export class ReplManager {
                     console.log(chalk.yellow(result));
                 }
                 break;
+            case '/image': {
+                if (args.length === 0) {
+                    console.log(chalk.red('Usage: /image <path>  (jpeg, png, gif, webp)'));
+                } else {
+                    try {
+                        const fs = require('fs');
+                        const path = require('path');
+                        const imgPath = path.resolve(process.cwd(), args[0]);
+                        if (!fs.existsSync(imgPath)) {
+                            console.log(chalk.red(`File not found: ${imgPath}`));
+                        } else {
+                            const buf = fs.readFileSync(imgPath);
+                            const ext = path.extname(imgPath).toLowerCase();
+                            const typeMap: Record<string, ImageAttachment['mediaType']> = {
+                                '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+                                '.png': 'image/png',  '.gif': 'image/gif',
+                                '.webp': 'image/webp',
+                            };
+                            const mediaType = typeMap[ext];
+                            if (!mediaType) {
+                                console.log(chalk.red(`Unsupported format: ${ext}. Use jpg, png, gif, or webp.`));
+                            } else {
+                                this.pendingImages.push({ base64: buf.toString('base64'), mediaType, name: path.basename(imgPath) });
+                                console.log(chalk.green(`✓ Image attached: ${path.basename(imgPath)} (${(buf.length / 1024).toFixed(1)} KB) — will be sent with next message`));
+                                if (this.pendingImages.length > 1) console.log(chalk.yellow(`  ${this.pendingImages.length} images queued`));
+                            }
+                        }
+                    } catch (e: any) {
+                        console.log(chalk.red(`Failed to read image: ${e.message}`));
+                    }
+                }
+                break;
+            }
             case '/drop':
                 if (args.length === 0) {
                     console.log(chalk.red('Usage: /drop <file_path>'));
@@ -777,7 +812,13 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
             fullInput = `${memoryBlock}\n\n${fullInput}`;
         }
 
-        this.history.push({ role: 'user', content: fullInput });
+        const images = this.pendingImages.splice(0)  // consume & clear
+        const userContent = buildUserContent(fullInput, images.length ? images : undefined)
+        if (images.length) {
+            const chalk = require('chalk')
+            console.log(chalk.dim(`  📎 ${images.length} image${images.length > 1 ? 's' : ''} attached`))
+        }
+        this.history.push({ role: 'user', content: userContent });
 
         const msg = this.getLoadingMessage();
         let spinner = ora({ text: `  ${msg}`, color: 'cyan' }).start();

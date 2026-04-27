@@ -6,12 +6,22 @@ import axios from 'axios'
 
 export type MsgRole = 'user' | 'assistant' | 'tool' | 'system'
 
+export interface ImageAttachment {
+  base64:    string
+  mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+  name:      string
+}
+
+type ContentBlock =
+  | { type: 'text';  text: string }
+  | { type: 'image'; mediaType: string; data: string }
+
 export interface ChatMessage {
-  role: MsgRole
-  content?: string
+  role:          MsgRole
+  content?:      string | ContentBlock[]
   tool_call_id?: string
-  name?: string
-  tool_calls?: ToolCall[]
+  name?:         string
+  tool_calls?:   ToolCall[]
 }
 
 export interface ToolCall {
@@ -173,23 +183,43 @@ function toAnthropicMessages(messages: ChatMessage[]) {
   const out: Array<{ role: string; content: string | unknown[] }> = []
   for (const m of messages) {
     if (m.role === 'tool') {
-      const tr = { type: 'tool_result', tool_use_id: m.tool_call_id, content: m.content || '' }
+      const tr = { type: 'tool_result', tool_use_id: m.tool_call_id, content: typeof m.content === 'string' ? m.content : '' }
       const last = out[out.length - 1]
       if (last?.role === 'user' && Array.isArray(last.content)) (last.content as unknown[]).push(tr)
       else out.push({ role: 'user', content: [tr] })
     } else if (m.role === 'assistant') {
       const blocks: unknown[] = []
-      if (m.content)     blocks.push({ type: 'text', text: m.content })
-      if (m.tool_calls)  m.tool_calls.forEach(tc => {
+      if (typeof m.content === 'string' && m.content) blocks.push({ type: 'text', text: m.content })
+      if (m.tool_calls) m.tool_calls.forEach(tc => {
         let input = {}; try { input = JSON.parse(tc.function.arguments) } catch {}
         blocks.push({ type: 'tool_use', id: tc.id, name: tc.function.name, input })
       })
       out.push({ role: 'assistant', content: blocks.length === 1 && (blocks[0] as { type: string }).type === 'text' ? (blocks[0] as { type: string; text: string }).text : blocks })
+    } else if (m.role === 'user' && Array.isArray(m.content)) {
+      // Multimodal user message
+      const blocks = m.content.map(b => {
+        if (b.type === 'image') return { type: 'image', source: { type: 'base64', media_type: b.mediaType, data: b.data } }
+        return { type: 'text', text: b.text }
+      })
+      out.push({ role: 'user', content: blocks })
     } else {
-      out.push({ role: m.role, content: m.content || '' })
+      out.push({ role: m.role, content: typeof m.content === 'string' ? m.content : '' })
     }
   }
   return out
+}
+
+function toOpenAIMessages(messages: ChatMessage[]) {
+  return messages.map(m => {
+    if (Array.isArray(m.content)) {
+      const content = m.content.map(b => {
+        if (b.type === 'image') return { type: 'image_url', image_url: { url: `data:${b.mediaType};base64,${b.data}` } }
+        return { type: 'text', text: b.text }
+      })
+      return { ...m, content }
+    }
+    return m
+  })
 }
 
 // ── Engine ────────────────────────────────────────────────────────────────────
@@ -320,7 +350,7 @@ export class HeadlessEngine extends EventEmitter {
 
   // ── Chat ──────────────────────────────────────────────────────────────────
 
-  async chat(userMessage: string): Promise<void> {
+  async chat(userMessage: string, images?: ImageAttachment[]): Promise<void> {
     this.abortController = new AbortController()
     const cfg = this.getApiConfig()
 
@@ -342,7 +372,14 @@ export class HeadlessEngine extends EventEmitter {
       this.emit('sessions_changed', { sessions: loadIndex() })
     }
 
-    this.history.push({ role: 'user', content: userMessage })
+    // Build user content — include images if provided
+    const userContent: ChatMessage['content'] = images && images.length
+      ? [
+          ...images.map(img => ({ type: 'image' as const, mediaType: img.mediaType, data: img.base64 })),
+          { type: 'text' as const, text: userMessage },
+        ]
+      : userMessage
+    this.history.push({ role: 'user', content: userContent })
     this.emit('message_start', { role: 'assistant' })
     this.emit('thinking', { text: 'Thinking...' })
 
@@ -366,7 +403,7 @@ Use read-only tools (read_file, list_dir, web_search) to analyze the codebase, t
         const isAnthropic = cfg.type === 'anthropic'
         const reqBody = isAnthropic
           ? { model: cfg.model, system: systemPrompt, messages: toAnthropicMessages(messages), tools: toAnthropicTools(activeTools), max_tokens: 4096 }
-          : { model: cfg.model, messages: [{ role: 'system', content: systemPrompt }, ...messages], tools: activeTools, tool_choice: 'auto', max_tokens: 4096 }
+          : { model: cfg.model, messages: [{ role: 'system', content: systemPrompt }, ...toOpenAIMessages(messages)], tools: activeTools, tool_choice: 'auto', max_tokens: 4096 }
         const reqHeaders = isAnthropic
           ? { 'Content-Type': 'application/json', 'x-api-key': cfg.key, 'anthropic-version': '2023-06-01' }
           : {
@@ -400,7 +437,7 @@ Use read-only tools (read_file, list_dir, web_search) to analyze the codebase, t
           keepGoing = toolCalls.length > 0
         }
 
-        this.history.push({ role: 'assistant', content, tool_calls: toolCalls.length ? toolCalls : undefined })
+        this.history.push({ role: 'assistant', content: content || undefined, tool_calls: toolCalls.length ? toolCalls : undefined })
         if (content) this.emit('message_chunk', { text: content })
 
         if (!toolCalls.length) { keepGoing = false; break }

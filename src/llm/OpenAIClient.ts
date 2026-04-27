@@ -99,13 +99,27 @@ export class OpenAIClient implements ModelClient {
         }));
         const systemContent = buildSystemPrompt(systemParts.join('\n\n') || undefined, toolSummaries);
 
+        // Convert ContentBlock[] messages to OpenAI image_url format
+        const oaiMessages = conversation.map(m => {
+            if (Array.isArray(m.content)) {
+                const content = m.content.map((b: any) => {
+                    if (b.type === 'image') {
+                        return { type: 'image_url', image_url: { url: `data:${b.mediaType};base64,${b.data}` } }
+                    }
+                    return { type: 'text', text: b.text ?? '' }
+                })
+                return { ...m, content }
+            }
+            return m
+        })
+
         const requestBody: any = {
             model: this.model,
             max_tokens: 8096,
             temperature: 0.7,
             messages: [
                 { role: 'system', content: systemContent },
-                ...conversation,
+                ...oaiMessages,
             ],
         };
 

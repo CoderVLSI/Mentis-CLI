@@ -1,12 +1,19 @@
 import { useState, useRef, useEffect, KeyboardEvent } from 'react'
 
+export interface ImageAttachment {
+  base64:    string
+  mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+  name:      string
+  preview:   string  // object URL for <img> preview
+}
+
 interface Props {
   disabled:          boolean
   streaming:         boolean
   model:             string
   provider:          string
   planMode:          boolean
-  onSend:            (text: string) => void
+  onSend:            (text: string, images?: ImageAttachment[]) => void
   onCancel:          () => void
   onModelChange:     (model: string) => void
   onProviderChange:  (provider: string) => void
@@ -51,8 +58,10 @@ export default function InputBar({ disabled, streaming, model, provider, planMod
   const [modelOpen, setModelOpen]     = useState(false)
   const [modelList, setModelList]     = useState<string[]>([])
   const [modelsLoading, setModelsLoading] = useState(false)
+  const [attachments, setAttachments] = useState<ImageAttachment[]>([])
   const textareaRef                   = useRef<HTMLTextAreaElement>(null)
   const modelBtnRef                   = useRef<HTMLDivElement>(null)
+  const fileInputRef                  = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     const el = textareaRef.current; if (!el) return
@@ -101,9 +110,32 @@ export default function InputBar({ disabled, streaming, model, provider, planMod
 
   const acceptCmd = (cmd: string) => { setText(cmd + ' '); setDdOpen(false); textareaRef.current?.focus() }
 
+  const addImages = (files: FileList | null) => {
+    if (!files) return
+    Array.from(files).forEach(file => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const dataUrl = reader.result as string
+        const base64  = dataUrl.split(',')[1]
+        const mediaType = file.type as ImageAttachment['mediaType']
+        setAttachments(prev => [...prev, { base64, mediaType, name: file.name, preview: URL.createObjectURL(file) }])
+      }
+      reader.readAsDataURL(file)
+    })
+  }
+
+  const removeAttachment = (idx: number) => {
+    setAttachments(prev => {
+      URL.revokeObjectURL(prev[idx].preview)
+      return prev.filter((_, i) => i !== idx)
+    })
+  }
+
   const submit = () => {
-    const t = text.trim(); if (!t) return
-    onSend(t); setText(''); setDdOpen(false)
+    const t = text.trim()
+    if (!t && attachments.length === 0) return
+    onSend(t || '(see attached image)', attachments.length ? attachments : undefined)
+    setText(''); setDdOpen(false); setAttachments([])
   }
 
   const handleKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -119,6 +151,17 @@ export default function InputBar({ disabled, streaming, model, provider, planMod
 
   return (
     <div className="relative px-4 pb-4 pt-2 border-t border-border bg-surface shrink-0">
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/gif,image/webp"
+        multiple
+        className="hidden"
+        onChange={e => addImages(e.target.files)}
+        onClick={e => { (e.target as HTMLInputElement).value = '' }}
+      />
+
       {/* Slash command dropdown */}
       {ddOpen && ddItems.length > 0 && (
         <div className="absolute bottom-full left-4 right-4 mb-1 bg-panel border border-border rounded-xl overflow-hidden shadow-2xl z-50">
@@ -132,14 +175,40 @@ export default function InputBar({ disabled, streaming, model, provider, planMod
         </div>
       )}
 
+      {/* Image preview strip */}
+      {attachments.length > 0 && (
+        <div className="flex gap-2 mb-2 flex-wrap">
+          {attachments.map((att, i) => (
+            <div key={i} className="relative group">
+              <img
+                src={att.preview}
+                alt={att.name}
+                className="h-16 w-16 object-cover rounded-lg border border-border"
+              />
+              <button
+                onClick={() => removeAttachment(i)}
+                className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+              >✕</button>
+              <div className="absolute bottom-0 left-0 right-0 bg-black/60 rounded-b-lg px-1 py-0.5">
+                <span className="text-[8px] text-white/70 truncate block">{att.name}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Main input box */}
-      <div className={`flex items-end gap-2 px-3 py-2 rounded-xl border transition-colors ${disabled ? 'border-border' : 'border-[#333] focus-within:border-accent/40'} bg-panel`}>
+      <div
+        className={`flex items-end gap-2 px-3 py-2 rounded-xl border transition-colors ${disabled ? 'border-border' : 'border-[#333] focus-within:border-accent/40'} bg-panel`}
+        onDragOver={e => e.preventDefault()}
+        onDrop={e => { e.preventDefault(); addImages(e.dataTransfer.files) }}
+      >
         <textarea
           ref={textareaRef}
           value={text}
           onChange={e => handleChange(e.target.value)}
           onKeyDown={handleKey}
-          placeholder="Ask anything… (/ for commands)"
+          placeholder={attachments.length ? 'Add a message… (or just send the image)' : 'Ask anything… (/ for commands)'}
           disabled={streaming}
           rows={1}
           className="flex-1 bg-transparent text-sm text-[#e8e8e8] placeholder-muted resize-none outline-none leading-relaxed py-0.5 font-[inherit] disabled:opacity-50"
@@ -147,13 +216,17 @@ export default function InputBar({ disabled, streaming, model, provider, planMod
         />
 
         <div className="flex items-center gap-1.5 shrink-0 pb-0.5">
-          {/* Mic button */}
-          <button className="p-1.5 rounded-lg text-muted hover:text-[#ccc] hover:bg-white/[0.05] transition-colors" title="Voice input (coming soon)">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/>
-              <line x1="8" y1="23" x2="16" y2="23"/>
-            </svg>
+          {/* Attach image button */}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={streaming}
+            className={`p-1.5 rounded-lg transition-colors ${attachments.length > 0 ? 'text-violet-400 bg-accent/10' : 'text-muted hover:text-[#ccc] hover:bg-white/[0.05]'} disabled:opacity-30`}
+            title="Attach image (jpeg, png, gif, webp)"
+          >
+            <AttachIcon />
+            {attachments.length > 0 && (
+              <span className="ml-0.5 text-[9px] font-bold">{attachments.length}</span>
+            )}
           </button>
 
           {streaming ? (
@@ -161,7 +234,7 @@ export default function InputBar({ disabled, streaming, model, provider, planMod
               <StopIcon /> Stop
             </button>
           ) : (
-            <button onClick={submit} disabled={!text.trim()} className="px-3 py-1.5 rounded-lg bg-accent hover:bg-violet-600 disabled:opacity-30 disabled:cursor-not-allowed text-white text-[11px] font-medium transition-colors flex items-center gap-1.5">
+            <button onClick={submit} disabled={!text.trim() && attachments.length === 0} className="px-3 py-1.5 rounded-lg bg-accent hover:bg-violet-600 disabled:opacity-30 disabled:cursor-not-allowed text-white text-[11px] font-medium transition-colors flex items-center gap-1.5">
               <SendIcon /> Send
             </button>
           )}
@@ -272,6 +345,10 @@ export default function InputBar({ disabled, streaming, model, provider, planMod
       </div>
     </div>
   )
+}
+
+function AttachIcon() {
+  return <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
 }
 
 function SendIcon() {

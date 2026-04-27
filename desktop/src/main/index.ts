@@ -75,7 +75,7 @@ app.on('window-all-closed', () => {
 })
 
 // ── Chat ──────────────────────────────────────────────────────────────────────
-ipcMain.handle('chat:send',    async (_e, msg: string) => { engine.chat(msg); return { ok: true } })
+ipcMain.handle('chat:send',    async (_e, msg: string, images?: import('./engine').ImageAttachment[]) => { engine.chat(msg, images); return { ok: true } })
 ipcMain.handle('chat:cancel',  ()                       => { engine.cancel(); return { ok: true } })
 ipcMain.handle('chat:history', ()                       => engine.getHistory())
 ipcMain.handle('chat:clear',   ()                       => { engine.clearHistory(); return { ok: true } })

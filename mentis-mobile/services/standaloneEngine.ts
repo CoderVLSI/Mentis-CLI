@@ -38,7 +38,17 @@ export interface StandaloneConfig {
   githubBranch:  string
 }
 
-type SimpleMsg = { role: 'user' | 'assistant'; content: string }
+export interface ImageAttachment {
+  base64:    string
+  mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+  name:      string
+}
+
+type ContentBlock =
+  | { type: 'text';  text: string }
+  | { type: 'image'; mediaType: string; data: string }
+
+type SimpleMsg = { role: 'user' | 'assistant'; content: string | ContentBlock[] }
 
 // Anthropic-format internal types (used only for the Anthropic provider path)
 type AnthropicBlock =
@@ -227,16 +237,26 @@ async function runAnthropicLoop(
   cfg:          StandaloneConfig,
   systemPrompt: string,
   history:      SimpleMsg[],
-  message:      string,
+  userContent:  SimpleMsg['content'],
   onEvent:      (evt: EngineEvent) => void,
   approvalGate: (id: string, name: string, args: Record<string, unknown>) => Promise<boolean>,
   signal?:      AbortSignal,
 ) {
   const { url, headers } = getRoute(cfg)
   const tools = cfg.githubRepo ? GITHUB_TOOLS_ANTHROPIC : []
+
+  // Convert ContentBlock[] to Anthropic format
+  const toAnthropicContent = (c: SimpleMsg['content']): string | unknown[] => {
+    if (typeof c === 'string') return c
+    return c.map(b => {
+      if (b.type === 'image') return { type: 'image', source: { type: 'base64', media_type: b.mediaType, data: b.data } }
+      return { type: 'text', text: b.text }
+    })
+  }
+
   const msgs: AnthropicMsg[] = [
-    ...history.map(m => ({ role: m.role, content: m.content })),
-    { role: 'user', content: message },
+    ...history.map(m => ({ role: m.role, content: toAnthropicContent(m.content) as string })),
+    { role: 'user', content: toAnthropicContent(userContent) as string },
   ]
 
   let keepGoing = true
@@ -309,17 +329,27 @@ async function runOpenAILoop(
   cfg:          StandaloneConfig,
   systemPrompt: string,
   history:      SimpleMsg[],
-  message:      string,
+  userContent:  SimpleMsg['content'],
   onEvent:      (evt: EngineEvent) => void,
   approvalGate: (id: string, name: string, args: Record<string, unknown>) => Promise<boolean>,
   signal?:      AbortSignal,
 ) {
   const { url, headers } = getRoute(cfg)
   const tools = cfg.githubRepo ? GITHUB_TOOLS_OAI : []
+
+  // Convert ContentBlock[] to OpenAI image_url format
+  const toOAIContent = (c: SimpleMsg['content']): string | unknown[] => {
+    if (typeof c === 'string') return c
+    return c.map(b => {
+      if (b.type === 'image') return { type: 'image_url', image_url: { url: `data:${b.mediaType};base64,${b.data}` } }
+      return { type: 'text', text: b.text }
+    })
+  }
+
   const msgs: OAIMsg[] = [
     { role: 'system', content: systemPrompt },
-    ...history.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
-    { role: 'user', content: message },
+    ...history.map(m => ({ role: m.role as 'user' | 'assistant', content: toOAIContent(m.content) as string })),
+    { role: 'user', content: toOAIContent(userContent) as string },
   ]
 
   let keepGoing = true
@@ -391,6 +421,7 @@ export async function runStandaloneChat(
   onEvent:      (evt: EngineEvent) => void,
   approvalGate: (id: string, name: string, args: Record<string, unknown>) => Promise<boolean>,
   signal?:      AbortSignal,
+  images?:      ImageAttachment[],
 ): Promise<void> {
   const repoInfo = cfg.githubRepo
     ? `Connected GitHub repo: ${cfg.githubRepo} (branch: ${cfg.githubBranch || 'main'})`
@@ -402,13 +433,21 @@ export async function runStandaloneChat(
 Use the github_* tools to read and modify the codebase. Always read files before editing them. Write complete file content when creating or updating files. Be concise and thorough.`
     : 'You are Mentis, an expert AI coding assistant. Provide coding advice and generate code snippets. No repository is connected.'
 
+  // Build user content with optional images
+  const userContent: SimpleMsg['content'] = images && images.length
+    ? [
+        ...images.map(img => ({ type: 'image' as const, mediaType: img.mediaType, data: img.base64 })),
+        { type: 'text' as const, text: message },
+      ]
+    : message
+
   onEvent({ type: 'thinking' })
 
   try {
     if (cfg.provider === 'anthropic') {
-      await runAnthropicLoop(cfg, systemPrompt, history, message, onEvent, approvalGate, signal)
+      await runAnthropicLoop(cfg, systemPrompt, history, userContent, onEvent, approvalGate, signal)
     } else {
-      await runOpenAILoop(cfg, systemPrompt, history, message, onEvent, approvalGate, signal)
+      await runOpenAILoop(cfg, systemPrompt, history, userContent, onEvent, approvalGate, signal)
     }
   } catch (e: unknown) {
     if ((e as Error).name !== 'AbortError') {

@@ -182,16 +182,18 @@ export default function App() {
   }, [session.mode, model, provider, clearChat])
 
   // ── Actions ────────────────────────────────────────────────────────────────
-  const send = useCallback(async (text: string) => {
+  const send = useCallback(async (text: string, images?: import('./components/InputBar').ImageAttachment[]) => {
     const t = text.trim()
-    if (!t || streaming) return
-    if (t.startsWith('/')) {
+    if (!t && (!images || images.length === 0) || streaming) return
+    if (t.startsWith('/') && (!images || images.length === 0)) {
       const handled = await handleSlash(t)
       if (handled) return
     }
-    setFeed(prev => [...prev, { id: uid(), role: 'user', content: t, timestamp: Date.now() }])
+    const displayText = t || (images && images.length ? `📎 ${images.map(i => i.name).join(', ')}` : '')
+    setFeed(prev => [...prev, { id: uid(), role: 'user', content: displayText, timestamp: Date.now() }])
     setThinking(true)
-    await window.mentis.sendMessage(t)
+    const ipcImages = images?.map(({ base64, mediaType, name }) => ({ base64, mediaType, name }))
+    await window.mentis.sendMessage(t || '', ipcImages)
   }, [streaming, handleSlash])
 
   const cancel = useCallback(() => {

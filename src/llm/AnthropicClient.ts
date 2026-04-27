@@ -197,9 +197,24 @@ export class AnthropicClient implements ModelClient {
                     result.push({ role: 'user', content: [toolResult] });
                 }
             } else if (msg.role === 'user') {
-                const block: any = { type: 'text', text: msg.content ?? '' };
-                if (addCache) block.cache_control = { type: 'ephemeral' };
-                result.push({ role: 'user', content: [block] });
+                if (Array.isArray(msg.content)) {
+                    // Multimodal: content is already ContentBlock[]
+                    const blocks: any[] = msg.content.map((b: any) => {
+                        if (b.type === 'image') {
+                            return {
+                                type: 'image',
+                                source: { type: 'base64', media_type: b.mediaType, data: b.data },
+                            }
+                        }
+                        return { type: 'text', text: b.text ?? '' }
+                    })
+                    if (addCache && blocks.length > 0) blocks[blocks.length - 1].cache_control = { type: 'ephemeral' }
+                    result.push({ role: 'user', content: blocks })
+                } else {
+                    const block: any = { type: 'text', text: msg.content ?? '' };
+                    if (addCache) block.cache_control = { type: 'ephemeral' };
+                    result.push({ role: 'user', content: [block] });
+                }
             }
         }
 

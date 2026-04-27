@@ -5,7 +5,7 @@ import {
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { useChat, useSettings, Message, Mode } from '../../store'
-import { runStandaloneChat, EngineEvent } from '../../services/standaloneEngine'
+import { runStandaloneChat, EngineEvent, ImageAttachment } from '../../services/standaloneEngine'
 import { streamChat, newSession, approveAction, setDesktopMode, SyncEvent } from '../../services/mentisClient'
 import ChatBubble from '../../components/ChatBubble'
 import ChatInput from '../../components/ChatInput'
@@ -82,14 +82,15 @@ export default function ChatScreen() {
   }, [chat, settings])
 
   // ── Send message ───────────────────────────────────────────────────────────
-  const send = useCallback(async (text: string) => {
+  const send = useCallback(async (text: string, images?: ImageAttachment[]) => {
     if (chat.streaming) return
-    if (handleSlash(text)) return
+    if (!images?.length && handleSlash(text)) return
     setError(null)
     chat.clearTools()
     chat.setThinking(true)
 
-    chat.addMessage({ id: `u${Date.now()}`, role: 'user', content: text, timestamp: Date.now() })
+    const displayText = text || (images?.length ? `📎 ${images.map(i => i.name).join(', ')}` : '')
+    chat.addMessage({ id: `u${Date.now()}`, role: 'user', content: displayText, timestamp: Date.now() })
     scrollToEnd()
 
     const msgId = chat.newPendingMsg()
@@ -192,6 +193,7 @@ export default function ChatScreen() {
           pendingApprovals.current.set(id, resolve)
         }),
         abortRef.current.signal,
+        images,
       )
     }
   }, [chat, settings, scrollToEnd])

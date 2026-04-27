@@ -2,7 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('mentis', {
   // Chat
-  sendMessage:  (msg: string)        => ipcRenderer.invoke('chat:send', msg),
+  sendMessage:  (msg: string, images?: { base64: string; mediaType: string; name: string }[]) =>
+    ipcRenderer.invoke('chat:send', msg, images),
   cancelChat:   ()                   => ipcRenderer.invoke('chat:cancel'),
   getHistory:   ()                   => ipcRenderer.invoke('chat:history'),
   clearHistory: ()                   => ipcRenderer.invoke('chat:clear'),
