@@ -14,6 +14,7 @@ import ToolCard from '../../components/ToolCard'
 import ModelPicker from '../../components/ModelPicker'
 import DrawerNav from '../../components/DrawerNav'
 import RepoPicker from '../../components/RepoPicker'
+import { PROVIDERS } from '../../services/providersConfig'
 import { C } from '../../constants/theme'
 
 export default function ChatScreen() {
@@ -251,7 +252,7 @@ export default function ChatScreen() {
           {/* Model selector */}
           <TouchableOpacity style={styles.modelBtn} onPress={() => setModelPickerOpen(true)}>
             <Text style={styles.modelText} numberOfLines={1}>
-              {settings.model.replace('claude-', '').replace('-4-7', ' Opus').replace('-4-6', ' Sonnet').replace('-4-5-20251001', ' Haiku')}
+              {PROVIDERS.find(p => p.id === settings.provider)?.models.find(m => m.id === settings.model)?.label ?? settings.model}
             </Text>
             <Text style={styles.modelChevron}>▾</Text>
           </TouchableOpacity>
