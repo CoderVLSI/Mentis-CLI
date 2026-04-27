@@ -47,11 +47,22 @@ export default function ChatPane({ feed, tools, thinking, onApprove }: Props) {
 
   const toolList = Array.from(tools.values())
 
+  // When tools are running, the pending assistant message sits at the end of feed but
+  // must render AFTER the tool cards — otherwise the response appears above the tool calls.
+  const lastItem    = feed[feed.length - 1]
+  const hasTools    = toolList.length > 0 || thinking
+  const shouldDefer = hasTools &&
+    !!lastItem &&
+    (lastItem as ChatMessage).role === 'assistant' &&
+    (lastItem as ToolSummaryMessage).type !== 'tool_summary'
+  const visibleFeed  = shouldDefer ? feed.slice(0, -1) : feed
+  const deferredMsg  = shouldDefer ? (lastItem as ChatMessage) : null
+
   return (
     <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-2 select-text">
       {feed.length === 0 && !thinking && <EmptyState />}
 
-      {feed.map(item => {
+      {visibleFeed.map(item => {
         if ((item as ToolSummaryMessage).type === 'tool_summary') {
           const s = item as ToolSummaryMessage
           return <ToolSummaryLine key={s.id} names={s.names} count={s.count} />
@@ -64,6 +75,8 @@ export default function ChatPane({ feed, tools, thinking, onApprove }: Props) {
           {toolList.map(t => <ToolCallCard key={t.id} tool={t} onApprove={onApprove} />)}
         </div>
       )}
+
+      {deferredMsg && <MessageBubble key={deferredMsg.id} message={deferredMsg} onImageClick={setLightbox} />}
 
       {thinking && <ThinkingIndicator />}
       <div ref={bottomRef} />
