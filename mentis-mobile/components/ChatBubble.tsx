@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View, TouchableOpacity } from 'react-native'
+import { Image, ScrollView, StyleSheet, Text, View, TouchableOpacity } from 'react-native'
 import Markdown from 'react-native-markdown-display'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
@@ -23,13 +23,33 @@ export default function ChatBubble({ message: m, isStreaming }: Props) {
         </View>
       )}
 
+      <View style={styles.bubbleWrap}>
+        {/* Image previews — shown above text for user messages */}
+        {isUser && m.images && m.images.length > 0 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.imgScroll}
+            contentContainerStyle={styles.imgContent}
+          >
+            {m.images.map((uri, i) => (
+              <Image
+                key={i}
+                source={{ uri }}
+                style={styles.imgPreview}
+                resizeMode="cover"
+              />
+            ))}
+          </ScrollView>
+        )}
+
       <TouchableOpacity
-        style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAssistant]}
+        style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAssistant, !m.content && styles.bubbleNoText]}
         onLongPress={copyContent}
         activeOpacity={0.85}
       >
         {isUser ? (
-          <Text style={styles.userText}>{m.content}</Text>
+          m.content ? <Text style={styles.userText}>{m.content}</Text> : null
         ) : (
           <>
             <Markdown style={markdownStyles}>{m.content || ' '}</Markdown>
@@ -39,6 +59,7 @@ export default function ChatBubble({ message: m, isStreaming }: Props) {
           </>
         )}
       </TouchableOpacity>
+      </View>
     </View>
   )
 }
@@ -48,11 +69,16 @@ const styles = StyleSheet.create({
   rowUser:         { justifyContent: 'flex-end' },
   avatar:          { width: 26, height: 26, borderRadius: 8, backgroundColor: C.accent + '33', alignItems: 'center', justifyContent: 'center', marginBottom: 2, flexShrink: 0 },
   avatarText:      { fontSize: 11, fontWeight: '700', color: C.accentL },
-  bubble:          { maxWidth: '85%', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 10 },
+  bubbleWrap:      { maxWidth: '85%', alignItems: 'flex-end', gap: 4 },
+  bubble:          { borderRadius: 16, paddingHorizontal: 14, paddingVertical: 10 },
+  bubbleNoText:    { paddingHorizontal: 0, paddingVertical: 0, backgroundColor: 'transparent', borderWidth: 0 },
   bubbleUser:      { backgroundColor: C.accent, borderBottomRightRadius: 4 },
   bubbleAssistant: { backgroundColor: C.panel2, borderBottomLeftRadius: 4, borderWidth: 1, borderColor: C.border },
   userText:        { fontSize: 14, color: '#fff', lineHeight: 21 },
   cursor:          { width: 8, height: 15, backgroundColor: C.accent, borderRadius: 2, marginTop: 2 },
+  imgScroll:       { flexGrow: 0 },
+  imgContent:      { flexDirection: 'row', gap: 6 },
+  imgPreview:      { width: 160, height: 120, borderRadius: 12, borderWidth: 1, borderColor: C.accent + '44' },
 })
 
 const markdownStyles = StyleSheet.create({

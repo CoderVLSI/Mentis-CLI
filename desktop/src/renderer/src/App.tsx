@@ -189,8 +189,9 @@ export default function App() {
       const handled = await handleSlash(t)
       if (handled) return
     }
-    const displayText = t || (images && images.length ? `📎 ${images.map(i => i.name).join(', ')}` : '')
-    setFeed(prev => [...prev, { id: uid(), role: 'user', content: displayText, timestamp: Date.now() }])
+    const displayText = t || ''
+    const previews    = images?.map(i => i.preview)
+    setFeed(prev => [...prev, { id: uid(), role: 'user', content: displayText, timestamp: Date.now(), images: previews }])
     setThinking(true)
     const ipcImages = images?.map(({ base64, mediaType, name }) => ({ base64, mediaType, name }))
     await window.mentis.sendMessage(t || '', ipcImages)

@@ -5,6 +5,7 @@ export interface ChatMessage {
   role: MsgRole
   content: string
   timestamp: number
+  images?: string[]   // preview URLs (object URLs) for user messages with attachments
 }
 
 export interface ToolSummaryMessage {

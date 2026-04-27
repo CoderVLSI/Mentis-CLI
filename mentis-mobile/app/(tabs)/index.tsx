@@ -89,8 +89,9 @@ export default function ChatScreen() {
     chat.clearTools()
     chat.setThinking(true)
 
-    const displayText = text || (images?.length ? `📎 ${images.map(i => i.name).join(', ')}` : '')
-    chat.addMessage({ id: `u${Date.now()}`, role: 'user', content: displayText, timestamp: Date.now() })
+    const displayText  = text || ''
+    const imageUris    = images?.map(i => i.uri)
+    chat.addMessage({ id: `u${Date.now()}`, role: 'user', content: displayText, timestamp: Date.now(), images: imageUris })
     scrollToEnd()
 
     const msgId = chat.newPendingMsg()

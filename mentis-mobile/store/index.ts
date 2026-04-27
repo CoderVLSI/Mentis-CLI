@@ -9,6 +9,7 @@ export interface Message {
   role:      'user' | 'assistant'
   content:   string
   timestamp: number
+  images?:   string[]   // local URIs for image previews on user messages
 }
 
 export interface ToolEvent {
