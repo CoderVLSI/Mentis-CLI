@@ -7,6 +7,21 @@ import { useSettings } from '../store'
 import { PROVIDERS, ProviderDef, ProviderModel, DEFAULT_MODEL } from '../services/providersConfig'
 import { C } from '../constants/theme'
 
+// ── Ollama local model fetcher ────────────────────────────────────────────────
+
+async function fetchOllamaModels(ollamaUrl: string): Promise<ProviderModel[]> {
+  try {
+    const base = ollamaUrl.replace(/\/v1\/?$/, '').replace(/\/$/, '')
+    const resp = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(5000) })
+    const data = await resp.json()
+    return ((data.models ?? []) as Array<{ name: string }>)
+      .map(m => ({ id: m.name, label: m.name }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+  } catch {
+    return []
+  }
+}
+
 // ── OpenRouter free-model fetcher ─────────────────────────────────────────────
 
 async function fetchFreeORModels(apiKey?: string): Promise<ProviderModel[]> {
@@ -45,12 +60,15 @@ interface Props {
 export default function ModelPicker({ visible, onClose }: Props) {
   const settings = useSettings()
 
-  const [tab,      setTab]      = useState(settings.provider)
-  const [orModels, setOrModels] = useState<ProviderModel[]>([])
-  const [orLoading, setOrLoading] = useState(false)
-  const [orError,   setOrError]   = useState(false)
-  const [query,    setQuery]    = useState('')
+  const [tab,         setTab]         = useState(settings.provider)
+  const [orModels,    setOrModels]    = useState<ProviderModel[]>([])
+  const [orLoading,   setOrLoading]   = useState(false)
+  const [orError,     setOrError]     = useState(false)
+  const [query,       setQuery]       = useState('')
   const [ollamaModel, setOllamaModel] = useState(settings.model)
+  const [olModels,    setOlModels]    = useState<ProviderModel[]>([])
+  const [olLoading,   setOlLoading]   = useState(false)
+  const [olFetched,   setOlFetched]   = useState(false)
   const fetchedRef = useRef(false)
 
   // Reset to current provider on open
@@ -59,6 +77,7 @@ export default function ModelPicker({ visible, onClose }: Props) {
       setTab(settings.provider)
       setQuery('')
       fetchedRef.current = false
+      setOlFetched(false)
     }
   }, [visible])
 
@@ -75,6 +94,16 @@ export default function ModelPicker({ visible, onClose }: Props) {
       })
       .finally(() => setOrLoading(false))
   }, [tab, settings.openrouterKey])
+
+  // Auto-detect Ollama models when Ollama tab is active
+  useEffect(() => {
+    if (tab !== 'ollama' || olFetched) return
+    setOlFetched(true)
+    setOlLoading(true)
+    fetchOllamaModels(settings.ollamaUrl || 'http://localhost:11434/v1')
+      .then(models => setOlModels(models))
+      .finally(() => setOlLoading(false))
+  }, [tab, olFetched, settings.ollamaUrl])
 
   const provDef = PROVIDERS.find(p => p.id === tab) as ProviderDef
 
@@ -138,24 +167,67 @@ export default function ModelPicker({ visible, onClose }: Props) {
 
         {/* Content area */}
         {tab === 'ollama' ? (
-          /* Ollama — manual entry */
-          <View style={styles.ollamaArea}>
-            <Text style={styles.sectionLabel}>Ollama Model Name</Text>
-            <TextInput
-              style={styles.ollamaInput}
-              value={ollamaModel}
-              onChangeText={setOllamaModel}
-              placeholder="llama3, mistral, codellama, phi3…"
-              placeholderTextColor={C.muted}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <Text style={styles.ollamaHint}>
-              Ollama must be running at{'\n'}{settings.ollamaUrl || 'http://localhost:11434/v1'}
-            </Text>
-            <TouchableOpacity style={[styles.applyBtn, { backgroundColor: provDef?.color }]} onPress={applyOllama}>
-              <Text style={styles.applyBtnTxt}>Use this model</Text>
-            </TouchableOpacity>
+          /* Ollama — auto-detect + manual fallback */
+          <View style={{ flex: 1 }}>
+            {/* Detected models */}
+            {olLoading ? (
+              <View style={styles.center}>
+                <ActivityIndicator color={provDef?.color ?? C.accent} />
+                <Text style={styles.loadingTxt}>Detecting Ollama models…</Text>
+                <Text style={styles.ollamaHint}>{settings.ollamaUrl || 'http://localhost:11434/v1'}</Text>
+              </View>
+            ) : olModels.length > 0 ? (
+              <FlatList
+                data={olModels}
+                keyExtractor={m => m.id}
+                style={styles.list}
+                ListHeaderComponent={
+                  <View style={styles.ollamaDetectedHeader}>
+                    <Text style={styles.sectionLabel}>Detected models</Text>
+                    <TouchableOpacity onPress={() => { setOlFetched(false); setOlModels([]) }}>
+                      <Text style={styles.retryTxt}>↺ refresh</Text>
+                    </TouchableOpacity>
+                  </View>
+                }
+                renderItem={({ item: m }) => (
+                  <ModelCard
+                    model={m}
+                    active={settings.model === m.id && settings.provider === 'ollama'}
+                    accentColor={provDef?.color ?? C.accent}
+                    onSelect={() => selectModel(m.id)}
+                  />
+                )}
+              />
+            ) : (
+              <View style={styles.center}>
+                <Text style={styles.errorTxt}>No models found at{'\n'}{settings.ollamaUrl || 'http://localhost:11434/v1'}</Text>
+                <TouchableOpacity
+                  style={styles.retryBtn}
+                  onPress={() => { setOlFetched(false); setOlModels([]) }}
+                >
+                  <Text style={styles.retryTxt}>↺ Retry</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Manual entry fallback */}
+            <View style={styles.ollamaArea}>
+              <Text style={styles.sectionLabel}>Or enter model name manually</Text>
+              <View style={styles.ollamaRow}>
+                <TextInput
+                  style={[styles.ollamaInput, { flex: 1 }]}
+                  value={ollamaModel}
+                  onChangeText={setOllamaModel}
+                  placeholder="llama3, mistral, phi3…"
+                  placeholderTextColor={C.muted}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <TouchableOpacity style={[styles.applyBtn, { backgroundColor: provDef?.color }]} onPress={applyOllama}>
+                  <Text style={styles.applyBtnTxt}>Use</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
           </View>
         ) : tab === 'openrouter' ? (
           /* OpenRouter — search + fetched list */
@@ -319,10 +391,12 @@ const styles = StyleSheet.create({
   retryTxt:      { color: C.textDim, fontSize: 13 },
 
   /* Ollama */
-  ollamaArea:    { padding: 16, gap: 10 },
-  sectionLabel:  { fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.8 },
-  ollamaInput:   { backgroundColor: C.panel2, borderWidth: 1, borderColor: C.border2, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 11, color: C.text, fontSize: 14, fontFamily: 'Courier New' },
-  ollamaHint:    { fontSize: 11, color: C.muted, lineHeight: 18 },
-  applyBtn:      { borderRadius: 10, paddingVertical: 13, alignItems: 'center', marginTop: 4 },
-  applyBtnTxt:   { color: '#fff', fontSize: 14, fontWeight: '600' },
+  ollamaArea:          { padding: 12, gap: 8, borderTopWidth: 1, borderTopColor: C.border2 },
+  ollamaRow:           { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  ollamaDetectedHeader:{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, paddingTop: 10, paddingBottom: 6 },
+  sectionLabel:        { fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.8 },
+  ollamaInput:         { backgroundColor: C.panel2, borderWidth: 1, borderColor: C.border2, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: C.text, fontSize: 13, fontFamily: 'Courier New' },
+  ollamaHint:          { fontSize: 11, color: C.muted, lineHeight: 18, textAlign: 'center' },
+  applyBtn:            { borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14, alignItems: 'center' },
+  applyBtnTxt:         { color: '#fff', fontSize: 13, fontWeight: '600' },
 })
