@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import {
-  Alert, FlatList, KeyboardAvoidingView, Platform,
+  Alert, FlatList, KeyboardAvoidingView, Platform, StatusBar,
   SafeAreaView, Share, StyleSheet, Text, TouchableOpacity, View,
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
@@ -383,7 +383,7 @@ function EmptyState({ mode, syncMode, githubRepo, onSuggest }: {
 
 const styles = StyleSheet.create({
   root:         { flex: 1, backgroundColor: C.bg },
-  header:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.panel },
+  header:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, paddingBottom: 10, paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) + 8 : 10, borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.panel },
   headerLeft:   { flexDirection: 'row', alignItems: 'center', gap: 8 },
   hamburger:    { width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
   logo:         { width: 26, height: 26, borderRadius: 7, backgroundColor: C.accent + '33', alignItems: 'center', justifyContent: 'center' },
