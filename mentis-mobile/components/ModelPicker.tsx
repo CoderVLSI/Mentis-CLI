@@ -97,8 +97,9 @@ export default function ModelPicker({ visible, onClose }: Props) {
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
-      <View style={styles.sheet}>
+      <View style={styles.overlay}>
+        <TouchableOpacity style={StyleSheet.absoluteFillObject} activeOpacity={1} onPress={onClose} />
+        <View style={styles.sheet}>
         {/* Handle */}
         <View style={styles.handle} />
 
@@ -235,6 +236,7 @@ export default function ModelPicker({ visible, onClose }: Props) {
             )}
           />
         )}
+        </View>
       </View>
     </Modal>
   )
@@ -275,8 +277,8 @@ function ModelCard({ model, active, accentColor, onSelect }: {
 // ── Styles ────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  backdrop:      { flex: 1, backgroundColor: '#000c' },
-  sheet:         { backgroundColor: C.panel, borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingBottom: 36, maxHeight: '82%' },
+  overlay:       { flex: 1, justifyContent: 'flex-end', backgroundColor: '#000c' },
+  sheet:         { backgroundColor: C.panel, borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingBottom: 36, height: '72%' },
   handle:        { width: 36, height: 4, borderRadius: 2, backgroundColor: C.border2, alignSelf: 'center', marginTop: 10 },
 
   titleRow:      { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 14, paddingBottom: 6 },
