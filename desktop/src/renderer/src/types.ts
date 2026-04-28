@@ -6,6 +6,7 @@ export interface ChatMessage {
   content: string
   timestamp: number
   images?: string[]   // preview URLs (object URLs) for user messages with attachments
+  source?: string     // e.g. '@username' for Telegram-originated messages
 }
 
 export interface ToolSummaryMessage {

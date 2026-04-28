@@ -54,7 +54,8 @@ export async function startTelegramChannel(
   engine:         HeadlessEngine,
   token:          string,
   allowedChatIds: number[],
-  autoApprove:    boolean
+  autoApprove:    boolean,
+  onUserMessage?: (text: string, fromName: string) => void
 ): Promise<void> {
   if (_running) { stopTelegramChannel(); await sleep(500) }
   _stop     = false
@@ -107,6 +108,10 @@ export async function startTelegramChannel(
           await sendMessage(token, chatId, '⏳ Agent is busy — try again in a moment.')
           continue
         }
+
+        // Notify desktop UI so the message appears in the chat feed
+        const fromName = msg.from.username ? `@${msg.from.username}` : msg.from.first_name
+        onUserMessage?.(msg.text, fromName)
 
         // Handle async so polling loop doesn't block
         handleMessage(engine, token, chatId, msg.text, autoApprove).catch(() => {})

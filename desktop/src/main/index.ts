@@ -68,7 +68,9 @@ function maybeStartTelegram() {
   if (!token) return
   const rawIds = (tg.allowedChatIds as string || '').split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n))
   const autoApprove = Boolean(tg.autoApprove)
-  startTelegramChannel(engine, token, rawIds, autoApprove).catch(() => {})
+  startTelegramChannel(engine, token, rawIds, autoApprove, (text, fromName) => {
+    mainWindow?.webContents.send('engine:telegram_message', { text, fromName })
+  }).catch(() => {})
 }
 
 app.whenReady().then(() => {

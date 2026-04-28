@@ -144,6 +144,12 @@ export default function App() {
       setSessions(s)
     }))
 
+    off.push(window.mentis.on('telegram_message', (data: unknown) => {
+      const { text, fromName } = data as { text: string; fromName: string }
+      setFeed(prev => [...prev, { id: uid(), role: 'user', content: text, timestamp: Date.now(), source: fromName }])
+      setThinking(true)
+    }))
+
     return () => off.forEach(fn => fn())
   }, [])
 
