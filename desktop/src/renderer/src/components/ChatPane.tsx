@@ -47,14 +47,17 @@ export default function ChatPane({ feed, tools, thinking, onApprove }: Props) {
 
   const toolList = Array.from(tools.values())
 
-  // When tools are running, the pending assistant message sits at the end of feed but
-  // must render AFTER the tool cards — otherwise the response appears above the tool calls.
+  // When tools are running, defer the pending assistant message to render AFTER tool cards.
+  // Only defer if the message already has content — empty placeholders are hidden by the
+  // ThinkingIndicator, so there's nothing to reorder.
   const lastItem    = feed[feed.length - 1]
   const hasTools    = toolList.length > 0 || thinking
-  const shouldDefer = hasTools &&
+  const lastIsAssistantWithContent =
     !!lastItem &&
     (lastItem as ChatMessage).role === 'assistant' &&
+    !!(lastItem as ChatMessage).content &&
     (lastItem as ToolSummaryMessage).type !== 'tool_summary'
+  const shouldDefer  = hasTools && lastIsAssistantWithContent
   const visibleFeed  = shouldDefer ? feed.slice(0, -1) : feed
   const deferredMsg  = shouldDefer ? (lastItem as ChatMessage) : null
 
@@ -67,7 +70,10 @@ export default function ChatPane({ feed, tools, thinking, onApprove }: Props) {
           const s = item as ToolSummaryMessage
           return <ToolSummaryLine key={s.id} names={s.names} count={s.count} />
         }
-        return <MessageBubble key={item.id} message={item as ChatMessage} onImageClick={setLightbox} />
+        const msg = item as ChatMessage
+        // Hide empty assistant placeholders — ThinkingIndicator covers the waiting state
+        if (msg.role === 'assistant' && !msg.content) return null
+        return <MessageBubble key={item.id} message={msg} onImageClick={setLightbox} />
       })}
 
       {toolList.length > 0 && (

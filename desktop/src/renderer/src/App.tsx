@@ -83,7 +83,17 @@ export default function App() {
     }))
 
     off.push(window.mentis.on('message_end', () => {
+      const id = pendingMsgId.current
       setStreaming(false); setThinking(false); pendingMsgId.current = null
+      // Remove placeholder assistant messages that never received text
+      // (these are pre-tool empty bubbles; ThinkingIndicator covers the waiting state)
+      if (id) {
+        setFeed(prev => {
+          const msg = prev.find(m => m.id === id) as ChatMessage | undefined
+          if (msg?.role === 'assistant' && !msg.content) return prev.filter(m => m.id !== id)
+          return prev
+        })
+      }
     }))
 
     off.push(window.mentis.on('tool_summary', (data: unknown) => {

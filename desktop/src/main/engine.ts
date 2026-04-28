@@ -454,6 +454,9 @@ You have: read_file, write_file, edit_file, list_dir, run_shell, web_search.
 
         if (!toolCalls.length) { keepGoing = false; break }
 
+        // Close the pre-tool assistant message, show tool summary, then open a new
+        // assistant message so the response text lands AFTER the tool cards in the feed.
+        this.emit('message_end', { content: content || '' })
         this.emit('tool_summary', { names: toolCalls.map(tc => tc.function.name), count: toolCalls.length })
 
         const results: ChatMessage[] = []
@@ -477,6 +480,10 @@ You have: read_file, write_file, edit_file, list_dir, run_shell, web_search.
           results.push({ role: 'tool', tool_call_id: tc.id, name, content: result })
         }
         this.history.push(...results)
+
+        // Open a new assistant message for the post-tool response
+        this.emit('message_start', { role: 'assistant' })
+        this.emit('thinking', { text: '' })
       }
 
       const last = this.history.filter(m => m.role === 'assistant').pop()
