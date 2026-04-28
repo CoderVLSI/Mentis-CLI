@@ -58,6 +58,12 @@ contextBridge.exposeInMainWorld('mentis', {
   // Sync info (mobile pairing)
   getSyncInfo: () => ipcRenderer.invoke('sync:info'),
 
+  // Telegram channel
+  getTelegramConfig: () => ipcRenderer.invoke('telegram:get-config'),
+  setTelegramConfig: (s: { botToken: string; allowedChatIds: string; autoApprove: boolean }) =>
+    ipcRenderer.invoke('telegram:set-config', s),
+  getTelegramStatus: () => ipcRenderer.invoke('telegram:get-status'),
+
   // Engine event subscriptions
   on: (channel: string, fn: (...args: unknown[]) => void) => {
     const listener = (_e: Electron.IpcRendererEvent, ...args: unknown[]) => fn(...args)

@@ -116,6 +116,11 @@ declare global {
       maximize:   () => void
       close:      () => void
 
+      // Telegram channel
+      getTelegramConfig: () => Promise<{ botToken: string; allowedChatIds: string; autoApprove: boolean }>
+      setTelegramConfig: (s: { botToken: string; allowedChatIds: string; autoApprove: boolean }) => Promise<{ ok: boolean }>
+      getTelegramStatus: () => Promise<{ running: boolean; botUsername: string }>
+
       // Platform
       platform: string
 

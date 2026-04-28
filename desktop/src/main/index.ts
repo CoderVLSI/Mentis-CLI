@@ -3,6 +3,7 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { HeadlessEngine, loadConfig, saveConfig } from './engine'
 import { startSyncServer, getSyncToken } from './syncServer'
+import { startTelegramChannel, stopTelegramChannel, isTelegramRunning, getTelegramBotUsername } from './telegramChannel'
 import os from 'os'
 import fs from 'fs-extra'
 import path from 'path'
@@ -60,12 +61,23 @@ function forwardEngineEvents(): void {
   engine.on('sessions_changed', fwd('sessions_changed'))
 }
 
+function maybeStartTelegram() {
+  const cfg = loadConfig()
+  const tg  = (cfg.telegram as Record<string, unknown>) || {}
+  const token = (tg.botToken as string || '').trim()
+  if (!token) return
+  const rawIds = (tg.allowedChatIds as string || '').split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n))
+  const autoApprove = Boolean(tg.autoApprove)
+  startTelegramChannel(engine, token, rawIds, autoApprove).catch(() => {})
+}
+
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.mentis.desktop')
   app.on('browser-window-created', (_, w) => optimizer.watchWindowShortcuts(w))
   createWindow()
   forwardEngineEvents()
   startSyncServer(engine)  // mobile sync on :3747
+  maybeStartTelegram()      // telegram bot if configured
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 })
 
@@ -226,6 +238,35 @@ ipcMain.handle('fs:readdir', async (_e, dirPath: string) => {
 ipcMain.handle('window:minimize', () => mainWindow?.minimize())
 ipcMain.handle('window:maximize', () => { if (mainWindow?.isMaximized()) mainWindow.unmaximize(); else mainWindow?.maximize() })
 ipcMain.handle('window:close',    () => mainWindow?.close())
+
+// ── Telegram channel ──────────────────────────────────────────────────────────
+ipcMain.handle('telegram:get-config', () => {
+  const cfg = loadConfig()
+  const tg  = (cfg.telegram as Record<string, unknown>) || {}
+  return { botToken: tg.botToken || '', allowedChatIds: tg.allowedChatIds || '', autoApprove: Boolean(tg.autoApprove) }
+})
+
+ipcMain.handle('telegram:set-config', async (_e, settings: { botToken: string; allowedChatIds: string; autoApprove: boolean }) => {
+  const cfg = loadConfig()
+  cfg.telegram = {
+    botToken:       settings.botToken.trim(),
+    allowedChatIds: settings.allowedChatIds.trim(),
+    autoApprove:    settings.autoApprove,
+  }
+  saveConfig(cfg)
+
+  stopTelegramChannel()
+  if (settings.botToken.trim()) {
+    await new Promise(r => setTimeout(r, 600))  // let stop settle
+    maybeStartTelegram()
+  }
+  return { ok: true }
+})
+
+ipcMain.handle('telegram:get-status', () => ({
+  running:     isTelegramRunning(),
+  botUsername: getTelegramBotUsername(),
+}))
 
 // ── Terminal (node-pty) ───────────────────────────────────────────────────────
 ipcMain.handle('terminal:create', (_e, cols: number, rows: number) => {

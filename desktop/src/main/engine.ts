@@ -232,6 +232,9 @@ export class HeadlessEngine extends EventEmitter {
   private abortController: AbortController | null = null
   private pendingApprovals = new Map<string, (approved: boolean) => void>()
   private currentSessionId = ''
+  private _chatting = false
+
+  isChatting(): boolean { return this._chatting }
 
   emit<K extends EngineEventName>(event: K, data: EngineEvent[K]): boolean { return super.emit(event, data) }
   on<K extends EngineEventName>(event: K, listener: (data: EngineEvent[K]) => void): this { return super.on(event, listener) }
@@ -352,6 +355,8 @@ export class HeadlessEngine extends EventEmitter {
   // ── Chat ──────────────────────────────────────────────────────────────────
 
   async chat(userMessage: string, images?: ImageAttachment[]): Promise<void> {
+    if (this._chatting) return
+    this._chatting = true
     this.abortController = new AbortController()
     const cfg = this.getApiConfig()
 
@@ -512,6 +517,9 @@ You have: read_file, write_file, edit_file, list_dir, run_shell, web_search.
         const detail = body ? ` — ${JSON.stringify(body).slice(0, 300)}` : ''
         this.emit('error', { message: `${status ? `HTTP ${status}` : msg}${detail}` })
       }
+    } finally {
+      this._chatting = false
+      this.abortController = null
     }
   }
 }

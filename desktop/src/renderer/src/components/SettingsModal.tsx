@@ -5,7 +5,7 @@ interface Props {
   onSaved: () => void
 }
 
-type Tab = 'general' | 'providers' | 'sync' | 'about'
+type Tab = 'general' | 'providers' | 'sync' | 'channels' | 'about'
 
 const PROVIDERS = [
   {
@@ -65,8 +65,16 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
   const [saving, setSaving]                   = useState(false)
   const [saved, setSaved]                     = useState(false)
   const [syncInfo, setSyncInfo]               = useState<{ port: number; ips: string[]; token: string } | null>(null)
+  const [tgToken, setTgToken]                 = useState('')
+  const [tgAllowed, setTgAllowed]             = useState('')
+  const [tgAutoApprove, setTgAutoApprove]     = useState(false)
+  const [tgShowToken, setTgShowToken]         = useState(false)
+  const [tgStatus, setTgStatus]               = useState<{ running: boolean; botUsername: string } | null>(null)
+  const [tgSaving, setTgSaving]               = useState(false)
 
   useEffect(() => {
+    window.mentis.getTelegramConfig().then(c => { setTgToken(c.botToken); setTgAllowed(c.allowedChatIds); setTgAutoApprove(c.autoApprove) })
+    window.mentis.getTelegramStatus().then(s => setTgStatus(s))
     window.mentis.getSyncInfo().then(info => setSyncInfo(info as { port: number; ips: string[]; token: string }))
     window.mentis.getConfig().then(cfg => {
       setDefaultProvider((cfg.defaultProvider as string) || 'ollama')
@@ -114,7 +122,16 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
     setTimeout(() => { setSaved(false); onClose() }, 900)
   }
 
-  const NAV: [Tab, string][] = [['general', 'General'], ['providers', 'Providers'], ['sync', 'Sync'], ['about', 'About']]
+  const saveTelegram = async () => {
+    setTgSaving(true)
+    await window.mentis.setTelegramConfig({ botToken: tgToken, allowedChatIds: tgAllowed, autoApprove: tgAutoApprove })
+    await new Promise(r => setTimeout(r, 800))
+    const s = await window.mentis.getTelegramStatus()
+    setTgStatus(s)
+    setTgSaving(false)
+  }
+
+  const NAV: [Tab, string][] = [['general', 'General'], ['providers', 'Providers'], ['sync', 'Sync'], ['channels', 'Channels'], ['about', 'About']]
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm no-drag" onClick={onClose}>
@@ -305,6 +322,110 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
                 ) : (
                   <div className="text-[12px] text-muted">Loading sync info…</div>
                 )}
+              </div>
+            )}
+
+            {tab === 'channels' && (
+              <div className="space-y-4">
+                <SectionTitle>Telegram Bot</SectionTitle>
+                <p className="text-[11px] text-muted -mt-2">
+                  Chat with your Mentis agent directly from Telegram. The agent uses your active AI provider and working directory.
+                </p>
+
+                {/* Status badge */}
+                {tgStatus && (
+                  <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-[11px] ${
+                    tgStatus.running
+                      ? 'bg-green-900/20 border-green-800/40 text-green-400'
+                      : 'bg-[#111] border-border text-muted'
+                  }`}>
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${tgStatus.running ? 'bg-green-400' : 'bg-muted/40'}`} />
+                    {tgStatus.running
+                      ? `Connected as @${tgStatus.botUsername}`
+                      : 'Not connected — enter a bot token below'}
+                  </div>
+                )}
+
+                {/* Setup steps */}
+                <div className="rounded-xl border border-border bg-[#0d0d0d] p-4 space-y-2">
+                  <div className="text-[11px] font-medium text-[#ccc] mb-2">Quick setup</div>
+                  {[
+                    ['1', 'Open Telegram and search for', '@BotFather'],
+                    ['2', 'Send', '/newbot', 'and follow the prompts'],
+                    ['3', 'Copy the bot token it gives you'],
+                    ['4', 'To find your Chat ID, message', '@userinfobot'],
+                  ].map(([n, ...parts]) => (
+                    <div key={n} className="flex items-start gap-2 text-[11px] text-muted">
+                      <span className="w-4 h-4 rounded-full bg-accent/20 text-accent text-[9px] flex items-center justify-center shrink-0 mt-0.5">{n}</span>
+                      <span>{parts.map((p, i) => p.startsWith('@') || p.startsWith('/') ? <code key={i} className="font-mono text-accent/80 text-[10px] bg-[#111] px-1 rounded">{p}</code> : p + ' ')}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Config fields */}
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-[10px] text-muted/70 uppercase tracking-wide mb-1.5 block">Bot Token</label>
+                    <div className="flex gap-1.5">
+                      <input
+                        type={tgShowToken ? 'text' : 'password'}
+                        value={tgToken}
+                        onChange={e => setTgToken(e.target.value)}
+                        placeholder="1234567890:ABCdef..."
+                        className="flex-1 min-w-0 bg-surface border border-border rounded-lg px-2.5 py-1.5 text-[11px] text-[#e8e8e8] placeholder-muted/50 focus:outline-none focus:border-accent/40 font-mono"
+                      />
+                      <button onClick={() => setTgShowToken(p => !p)}
+                        className="px-2 rounded-lg border border-border text-[10px] text-muted hover:text-[#ccc] transition-colors shrink-0">
+                        {tgShowToken ? 'Hide' : 'Show'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] text-muted/70 uppercase tracking-wide mb-1.5 block">Allowed Chat IDs <span className="normal-case text-muted/50">(comma-separated, leave empty to allow anyone)</span></label>
+                    <input
+                      type="text"
+                      value={tgAllowed}
+                      onChange={e => setTgAllowed(e.target.value)}
+                      placeholder="123456789, 987654321"
+                      className="w-full bg-surface border border-border rounded-lg px-2.5 py-1.5 text-[11px] text-[#e8e8e8] placeholder-muted/50 focus:outline-none focus:border-accent/40 font-mono"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between p-3 rounded-lg border border-border bg-[#0d0d0d]">
+                    <div>
+                      <div className="text-[12px] font-medium text-[#ccc]">Auto-approve tool calls</div>
+                      <div className="text-[10px] text-muted mt-0.5">Allow the agent to run shell commands and write files without asking. Enable only if you trust all allowed chat IDs.</div>
+                    </div>
+                    <button
+                      onClick={() => setTgAutoApprove(p => !p)}
+                      className={`ml-4 w-9 h-5 rounded-full transition-colors shrink-0 relative ${tgAutoApprove ? 'bg-accent' : 'bg-[#333]'}`}
+                    >
+                      <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${tgAutoApprove ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={saveTelegram}
+                    disabled={tgSaving}
+                    className="px-4 py-2 rounded-lg bg-accent hover:bg-violet-600 disabled:opacity-60 text-white text-[12px] font-medium transition-colors"
+                  >
+                    {tgSaving ? 'Connecting…' : tgToken ? 'Save & Connect' : 'Save'}
+                  </button>
+                  {tgStatus?.running && (
+                    <button
+                      onClick={async () => {
+                        await window.mentis.setTelegramConfig({ botToken: '', allowedChatIds: '', autoApprove: false })
+                        setTgToken(''); setTgAllowed(''); setTgStatus({ running: false, botUsername: '' })
+                      }}
+                      className="px-4 py-2 rounded-lg border border-red-800/50 text-red-400/70 hover:text-red-400 text-[12px] transition-colors"
+                    >
+                      Disconnect
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
