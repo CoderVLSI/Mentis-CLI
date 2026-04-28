@@ -52,6 +52,7 @@ import { AnthropicClient } from '../llm/AnthropicClient';
 import { SidekickManager } from '../sidekick/SidekickManager';
 import { renderBanner, renderCard, renderInteraction } from '../sidekick/SidekickDisplay';
 import { MemoryManager } from '../memory/MemoryManager';
+import { startCliTelegramChannel, stopCliTelegramChannel, isCliTelegramRunning, getCliBotUsername } from '../telegram/TelegramChannel';
 
 const HISTORY_FILE     = path.join(os.homedir(), '.mentis_history');
 const GLOBAL_SESS_DIR  = path.join(os.homedir(), '.mentis', 'sessions');
@@ -536,6 +537,7 @@ export class ReplManager {
                 console.log('  /run <cmd> - Run shell command');
                 console.log('  /commit [msg] - Git commit all changes');
                 console.log('  /init    - Initialize project with .mentis.md');
+                console.log('  /telegram - Configure and manage the Telegram bot channel');
                 break;
             case '/plan':
                 await this.handlePlanCommand(args);
@@ -626,6 +628,9 @@ export class ReplManager {
                 break;
             case '/config':
                 await this.handleConfigCommand();
+                break;
+            case '/telegram':
+                await this.handleTelegramCommand();
                 break;
             case '/memory':
                 await this.handleMemoryCommand(args);
@@ -1172,6 +1177,116 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
             this.configManager.updateConfig(updates);
             console.log(chalk.green(`Base URL updated for ${currentProvider}.`));
             this.initializeClient();
+        }
+    }
+
+    private async handleTelegramCommand() {
+        const cfgRaw = this.configManager.getConfig() as Record<string, unknown>
+        const tg     = (cfgRaw.telegram as Record<string, unknown>) || {}
+        const running = isCliTelegramRunning()
+        const username = getCliBotUsername()
+
+        console.log(chalk.cyan('\n  ── Telegram Bot Channel ──────────────────────────'))
+        if (running) {
+            console.log(chalk.green(`  ● Connected as @${username}`))
+        } else {
+            console.log(chalk.dim('  ○ Not connected'))
+        }
+        const currentToken   = (tg.botToken        as string || '')
+        const currentIds     = (tg.allowedChatIds   as string || '')
+        const currentAuto    = Boolean(tg.autoApprove)
+        if (currentToken) console.log(chalk.dim(`  Token: ${currentToken.slice(0, 8)}…`))
+        if (currentIds)   console.log(chalk.dim(`  Allowed IDs: ${currentIds}`))
+        console.log(chalk.dim(`  Auto-approve tools: ${currentAuto ? 'yes' : 'no'}`))
+        console.log()
+
+        const { action } = await inquirer.prompt([{
+            type:    'list',
+            name:    'action',
+            message: 'Telegram Bot',
+            prefix:  '',
+            choices: [
+                { name: 'Set bot token',            value: 'token'      },
+                { name: 'Set allowed chat IDs',     value: 'ids'        },
+                { name: 'Toggle auto-approve tools', value: 'auto'      },
+                { name: running ? 'Restart bot' : 'Start bot', value: 'start' },
+                { name: 'Stop bot',                 value: 'stop'       },
+                { name: 'Show status',              value: 'status'     },
+                { name: 'Back',                     value: 'back'       },
+            ],
+        }])
+
+        if (action === 'back') return
+
+        if (action === 'token') {
+            const { value } = await inquirer.prompt([{
+                type:    'password',
+                name:    'value',
+                message: 'Bot token (from @BotFather):',
+                mask:    '*',
+                default: currentToken,
+            }])
+            const updated = { ...(cfgRaw.telegram as object || {}), botToken: value.trim() }
+            this.configManager.updateConfig({ telegram: updated } as Record<string, unknown>)
+            console.log(chalk.green('  ✓ Token saved. Run /telegram → Start bot to connect.'))
+        }
+
+        if (action === 'ids') {
+            const { value } = await inquirer.prompt([{
+                type:    'input',
+                name:    'value',
+                message: 'Allowed chat IDs (comma-separated, empty = anyone):',
+                default: currentIds,
+            }])
+            const updated = { ...(cfgRaw.telegram as object || {}), allowedChatIds: value.trim() }
+            this.configManager.updateConfig({ telegram: updated } as Record<string, unknown>)
+            console.log(chalk.green('  ✓ Allowed IDs saved.'))
+            console.log(chalk.dim('  Tip: message @userinfobot on Telegram to find your chat ID.'))
+        }
+
+        if (action === 'auto') {
+            const newVal = !currentAuto
+            const updated = { ...(cfgRaw.telegram as object || {}), autoApprove: newVal }
+            this.configManager.updateConfig({ telegram: updated } as Record<string, unknown>)
+            console.log(newVal
+                ? chalk.yellow('  ⚠ Auto-approve ON — agent can write files and run shell commands from Telegram.')
+                : chalk.green('  ✓ Auto-approve OFF — only read-only tools allowed from Telegram.'))
+        }
+
+        if (action === 'start') {
+            const freshCfg = this.configManager.getConfig() as Record<string, unknown>
+            const freshTg  = (freshCfg.telegram as Record<string, unknown>) || {}
+            const token    = (freshTg.botToken as string || '').trim()
+            if (!token) {
+                console.log(chalk.red('  No bot token set. Run /telegram → Set bot token first.'))
+                return
+            }
+            stopCliTelegramChannel()
+            await new Promise(r => setTimeout(r, 400))
+            const rawIds    = (freshTg.allowedChatIds as string || '').split(',').map((s: string) => parseInt(s.trim(), 10)).filter((n: number) => !isNaN(n))
+            const autoApprove = Boolean(freshTg.autoApprove)
+            startCliTelegramChannel(rawIds, autoApprove, (text, fromName) => {
+                process.stdout.write(`\n${chalk.magenta(`[Telegram ${fromName}]`)} ${text}\n`)
+            }).catch((e: Error) => console.log(chalk.red(`  Telegram error: ${e.message}`)))
+            await new Promise(r => setTimeout(r, 1200))
+            if (isCliTelegramRunning()) {
+                console.log(chalk.green(`  ✓ Bot @${getCliBotUsername()} is now online.`))
+            } else {
+                console.log(chalk.red('  Failed to connect — check the token and try again.'))
+            }
+        }
+
+        if (action === 'stop') {
+            stopCliTelegramChannel()
+            console.log(chalk.yellow('  Bot stopped.'))
+        }
+
+        if (action === 'status') {
+            if (isCliTelegramRunning()) {
+                console.log(chalk.green(`  ● Online — @${getCliBotUsername()}`))
+            } else {
+                console.log(chalk.dim('  ○ Offline'))
+            }
         }
     }
 
