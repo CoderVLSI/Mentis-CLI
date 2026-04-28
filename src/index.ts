@@ -7,6 +7,8 @@
  */
 
 import { ReplManager } from './repl/ReplManager';
+import { ConfigManager } from './config/ConfigManager';
+import { startCliTelegramChannel, stopCliTelegramChannel } from './telegram/TelegramChannel';
 
 /**
  * CLI options for controlling Mentis behavior
@@ -111,9 +113,23 @@ async function main(): Promise<void> {
         return;
     }
 
+    // Start Telegram channel in background if configured
+    const cfgRaw = new ConfigManager().getConfig() as Record<string, unknown>
+    const tg     = (cfgRaw.telegram as Record<string, unknown>) || {}
+    const tgToken = (tg.botToken as string || '').trim()
+    if (tgToken) {
+        const rawIds     = (tg.allowedChatIds as string || '').split(',').map((s: string) => parseInt(s.trim(), 10)).filter((n: number) => !isNaN(n))
+        const autoApprove = Boolean(tg.autoApprove)
+        startCliTelegramChannel(rawIds, autoApprove, (text, fromName) => {
+            // Print incoming Telegram message to the CLI terminal
+            process.stdout.write(`\n\x1b[35m[Telegram ${fromName}]\x1b[0m ${text}\n`)
+        }).catch(() => {})
+    }
+
     // Start REPL with options
     const repl = new ReplManager(options);
     await repl.start();
+    stopCliTelegramChannel();
 }
 
 // Global stdin-state safety net: unexpected errors anywhere in the app can
