@@ -42,6 +42,7 @@ export interface SessionMeta {
   createdAt: number
   updatedAt: number
   messageCount: number
+  cwd?: string
 }
 
 export interface McpServer {

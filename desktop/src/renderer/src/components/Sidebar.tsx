@@ -13,7 +13,8 @@ interface Props {
   onOpenSettings: () => void
 }
 
-type Panel = 'sessions' | 'search' | 'mcp' | 'hooks'
+type Panel = 'sessions' | 'search' | 'mcp' | 'hooks' | 'files'
+type ChatGroupMode = 'folder' | 'time'
 
 function relTime(ts: number): string {
   const diff = Date.now() - ts
@@ -22,7 +23,7 @@ function relTime(ts: number): string {
   if (d < 7) return `${d}d`; return `${Math.floor(d / 7)}w`
 }
 
-function groupSessions(sessions: SessionMeta[]) {
+function groupByTime(sessions: SessionMeta[]): Record<string, SessionMeta[]> {
   const now = Date.now()
   const g: Record<string, SessionMeta[]> = { Today: [], Yesterday: [], 'This week': [], Older: [] }
   for (const s of sessions) {
@@ -35,19 +36,50 @@ function groupSessions(sessions: SessionMeta[]) {
   return g
 }
 
-export default function Sidebar({ session, sessions, onNew, onSwitch, onDelete, onPickFolder, onToggleMode, onClear, onOpenSettings }: Props) {
-  const [panel, setPanel]         = useState<Panel>('sessions')
+function folderLabel(cwd?: string): string {
+  if (!cwd) return 'No folder'
+  const parts = cwd.replace(/\\/g, '/').split('/').filter(Boolean)
+  return parts[parts.length - 1] || cwd
+}
 
-  const [hoverId, setHoverId]     = useState<string | null>(null)
-  const [mcpList, setMcpList]     = useState<McpServer[]>([])
-  const [hooks, setHooks]         = useState<Record<string, HookEntry[]>>({})
+function groupByFolder(sessions: SessionMeta[]): Record<string, SessionMeta[]> {
+  const g: Record<string, SessionMeta[]> = {}
+  for (const s of sessions) {
+    const key = s.cwd || ''
+    if (!g[key]) g[key] = []
+    g[key].push(s)
+  }
+  return g
+}
+
+export default function Sidebar({ session, sessions, onNew, onSwitch, onDelete, onPickFolder, onToggleMode, onClear, onOpenSettings }: Props) {
+  const [panel, setPanel]           = useState<Panel>('sessions')
+  const [groupMode, setGroupMode]   = useState<ChatGroupMode>('folder')
+  const [hoverId, setHoverId]       = useState<string | null>(null)
+  const [mcpList, setMcpList]       = useState<McpServer[]>([])
+  const [hooks, setHooks]           = useState<Record<string, HookEntry[]>>({})
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['']))
 
   useEffect(() => {
     if (panel === 'mcp')   window.mentis.listMcp().then(data => setMcpList(data ?? [])).catch(() => setMcpList([]))
     if (panel === 'hooks') window.mentis.listHooks().then(data => setHooks(data ?? {})).catch(() => setHooks({}))
   }, [panel])
 
-  const groups = useMemo(() => groupSessions(sessions), [sessions])
+  // Auto-expand the folder of the active session
+  useEffect(() => {
+    const active = sessions.find(s => s.id === session.sessionId)
+    if (active) setExpandedFolders(prev => new Set([...prev, active.cwd ?? '']))
+  }, [session.sessionId, sessions])
+
+  const timeGroups   = useMemo(() => groupByTime(sessions),   [sessions])
+  const folderGroups = useMemo(() => groupByFolder(sessions), [sessions])
+
+  const toggleFolder = (key: string) =>
+    setExpandedFolders(prev => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      return next
+    })
 
   const cwdShort = session.cwd
     ? session.cwd.replace(/^.*[/\\]([^/\\]+[/\\][^/\\]+)$/, '…/$1') || session.cwd
@@ -90,6 +122,7 @@ export default function Sidebar({ session, sessions, onNew, onSwitch, onDelete, 
       {/* Nav items */}
       <div className="px-2 py-1 flex flex-col gap-0.5">
         {navItem('search', <SearchIcon />, 'Search')}
+        {navItem('files',  <FilesNavIcon />, 'File Manager')}
         {navItem('mcp',    <McpIcon />,    'MCP Servers')}
         {navItem('hooks',  <HooksIcon />,  'Hooks')}
       </div>
@@ -103,39 +136,58 @@ export default function Sidebar({ session, sessions, onNew, onSwitch, onDelete, 
         )}
         {panel === 'mcp' && <McpPanel servers={mcpList} />}
         {panel === 'hooks' && <HooksPanel hooks={hooks} />}
+        {panel === 'files' && <SidebarFileManager cwd={session.cwd} />}
         {panel === 'sessions' && (
           <>
-            <div className="text-[10px] text-muted uppercase tracking-widest px-2 py-1.5">Chats</div>
-            {Object.entries(groups).map(([label, items]) =>
+            {/* Group mode toggle */}
+            <div className="flex items-center justify-between px-2 py-1.5">
+              <span className="text-[10px] text-muted uppercase tracking-widest">Chats</span>
+              <button
+                onClick={() => setGroupMode(m => m === 'folder' ? 'time' : 'folder')}
+                className="text-[9px] text-muted/50 hover:text-muted transition-colors"
+                title="Toggle grouping"
+              >
+                {groupMode === 'folder' ? '⏱ by time' : '📁 by folder'}
+              </button>
+            </div>
+
+            {sessions.length === 0 && <div className="text-center text-muted text-[11px] py-6">No chats</div>}
+
+            {groupMode === 'time' && Object.entries(timeGroups).map(([label, items]) =>
               items.length === 0 ? null : (
                 <div key={label} className="mb-2">
                   <div className="px-2 py-0.5 text-[10px] text-muted/60">{label}</div>
-                  {items.map(s => (
-                    <div
-                      key={s.id}
-                      onMouseEnter={() => setHoverId(s.id)}
-                      onMouseLeave={() => setHoverId(null)}
-                      onClick={() => onSwitch(s.id)}
-                      className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-lg cursor-pointer transition-colors text-[11px] ${
-                        s.id === session.sessionId ? 'bg-accent/15 text-[#ddd]' : 'text-muted hover:bg-white/[0.04] hover:text-[#ccc]'
-                      }`}
-                    >
-                      <ChatIcon />
-                      <span className="flex-1 truncate">{s.title}</span>
-                      {hoverId === s.id ? (
-                        <button onClick={e => { e.stopPropagation(); onDelete(s.id) }}
-                          className="w-4 h-4 flex items-center justify-center rounded hover:bg-red-500/20 text-muted hover:text-red-400 transition-colors">
-                          <XIcon />
-                        </button>
-                      ) : (
-                        <span className="text-[9px] text-muted/50">{relTime(s.updatedAt)}</span>
-                      )}
-                    </div>
-                  ))}
+                  {items.map(s => <SessionRow key={s.id} s={s} active={s.id === session.sessionId} hoverId={hoverId} setHoverId={setHoverId} onSwitch={onSwitch} onDelete={onDelete} indent={false} />)}
                 </div>
               )
             )}
-            {sessions.length === 0 && <div className="text-center text-muted text-[11px] py-6">No chats</div>}
+
+            {groupMode === 'folder' && Object.entries(folderGroups)
+              .sort(([a], [b]) => (a || '').localeCompare(b || ''))
+              .map(([cwd, items]) => {
+                const label   = folderLabel(cwd)
+                const isOpen  = expandedFolders.has(cwd)
+                const hasActive = items.some(s => s.id === session.sessionId)
+                return (
+                  <div key={cwd} className="mb-1">
+                    <button
+                      onClick={() => toggleFolder(cwd)}
+                      className={`flex items-center gap-1.5 w-full px-2 py-1 rounded-lg text-[10px] transition-colors ${
+                        hasActive ? 'text-[#bbb]' : 'text-muted hover:text-[#aaa]'
+                      } hover:bg-white/[0.03]`}
+                    >
+                      <span className={`transition-transform duration-150 ${isOpen ? 'rotate-90' : ''} text-muted/50`}>›</span>
+                      <FolderIcon />
+                      <span className="flex-1 truncate font-mono text-[10px]">{label}</span>
+                      <span className="text-muted/40 text-[9px]">{items.length}</span>
+                    </button>
+                    {isOpen && items.map(s => (
+                      <SessionRow key={s.id} s={s} active={s.id === session.sessionId} hoverId={hoverId} setHoverId={setHoverId} onSwitch={onSwitch} onDelete={onDelete} indent />
+                    ))}
+                  </div>
+                )
+              })
+            }
           </>
         )}
       </div>
@@ -163,6 +215,100 @@ export default function Sidebar({ session, sessions, onNew, onSwitch, onDelete, 
         <div className="px-1"><span className="text-[10px] text-muted font-mono">v1.2.0</span></div>
       </div>
     </aside>
+  )
+}
+
+// ── Shared session row ────────────────────────────────────────────────────────
+
+function SessionRow({ s, active, hoverId, setHoverId, onSwitch, onDelete, indent }: {
+  s: SessionMeta; active: boolean; hoverId: string | null
+  setHoverId: (id: string | null) => void
+  onSwitch: (id: string) => void; onDelete: (id: string) => void; indent: boolean
+}) {
+  return (
+    <div
+      onMouseEnter={() => setHoverId(s.id)}
+      onMouseLeave={() => setHoverId(null)}
+      onClick={() => onSwitch(s.id)}
+      className={`group flex items-center gap-1.5 py-1.5 rounded-lg cursor-pointer transition-colors text-[11px] ${indent ? 'pl-6 pr-2' : 'px-2'} ${
+        active ? 'bg-accent/15 text-[#ddd]' : 'text-muted hover:bg-white/[0.04] hover:text-[#ccc]'
+      }`}
+    >
+      <ChatIcon />
+      <span className="flex-1 truncate">{s.title}</span>
+      {hoverId === s.id ? (
+        <button onClick={e => { e.stopPropagation(); onDelete(s.id) }}
+          className="w-4 h-4 flex items-center justify-center rounded hover:bg-red-500/20 text-muted hover:text-red-400 transition-colors">
+          <XIcon />
+        </button>
+      ) : (
+        <span className="text-[9px] text-muted/50">{relTime(s.updatedAt)}</span>
+      )}
+    </div>
+  )
+}
+
+// ── Sidebar file manager ──────────────────────────────────────────────────────
+
+function SidebarFileManager({ cwd }: { cwd: string }) {
+  const [path,    setPath]    = useState(cwd || '')
+  const [entries, setEntries] = useState<Array<{name: string; type: 'file'|'dir'}>>([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!path) return
+    setLoading(true)
+    window.mentis.readDir(path)
+      .then(r => setEntries(r as Array<{name: string; type: 'file'|'dir'}>))
+      .finally(() => setLoading(false))
+  }, [path])
+
+  const up = () => {
+    const parts = path.replace(/\\/g, '/').split('/').filter(Boolean)
+    if (parts.length > 1) { parts.pop(); setPath('/' + parts.join('/')) }
+  }
+
+  const folderName = path.replace(/\\/g, '/').split('/').filter(Boolean).pop() || path
+
+  return (
+    <div className="pt-1">
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-1 px-2 py-1 mb-1">
+        <button onClick={up} className="text-muted/50 hover:text-muted transition-colors text-[10px]" title="Up">‹</button>
+        <span className="text-[10px] text-muted font-mono truncate flex-1" title={path}>{folderName}</span>
+        <button onClick={() => setPath(p => p)} className="text-muted/40 hover:text-muted text-[10px]" title="Refresh">↺</button>
+      </div>
+
+      {loading && <div className="text-center text-muted text-[10px] py-3">Loading…</div>}
+
+      {!loading && entries.map(e => {
+        const fullPath = path.replace(/[\\/]+$/, '') + '/' + e.name
+        return (
+          <button
+            key={e.name}
+            onClick={() => {
+              if (e.type === 'dir') setPath(fullPath)
+              else window.dispatchEvent(new CustomEvent('mentis:insert-text', { detail: fullPath }))
+            }}
+            className="flex items-center gap-1.5 w-full px-2 py-1 rounded-lg hover:bg-white/[0.04] text-left text-[10px] group"
+          >
+            {e.type === 'dir'
+              ? <span className="text-[#8b7fd4] shrink-0">▸</span>
+              : <span className="text-muted/40 shrink-0">·</span>
+            }
+            <span className={`truncate ${e.type === 'dir' ? 'text-[#b0a4e8]' : 'text-muted'}`}>{e.name}</span>
+          </button>
+        )
+      })}
+
+      {!loading && entries.length === 0 && path && (
+        <div className="text-center text-muted/40 text-[10px] py-3">Empty</div>
+      )}
+
+      {!path && (
+        <div className="text-center text-muted/40 text-[10px] py-4">No folder open</div>
+      )}
+    </div>
   )
 }
 
@@ -254,7 +400,8 @@ function HooksPanel({ hooks }: { hooks: Record<string, HookEntry[]> }) {
 const PlusIcon    = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
 const SearchIcon  = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted shrink-0"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
 const McpIcon     = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted shrink-0"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
-const HooksIcon   = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted shrink-0"><polyline points="13 2 13 9 22 9"/><polyline points="11 22 11 15 2 15"/><path d="M22 9 12 19 2 9"/></svg>
+const HooksIcon     = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted shrink-0"><polyline points="13 2 13 9 22 9"/><polyline points="11 22 11 15 2 15"/><path d="M22 9 12 19 2 9"/></svg>
+const FilesNavIcon  = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted shrink-0"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
 const ChatIcon    = () => <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted/60 shrink-0"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
 const XIcon       = () => <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
 const FolderIcon  = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>

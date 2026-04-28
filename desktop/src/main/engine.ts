@@ -36,6 +36,7 @@ export interface SessionMeta {
   createdAt: number
   updatedAt: number
   messageCount: number
+  cwd?: string
 }
 
 export interface EngineEvent {
@@ -365,8 +366,9 @@ export class HeadlessEngine extends EventEmitter {
     // Auto-title session from first user message
     const index = loadIndex()
     const meta = index.find(s => s.id === this.currentSessionId)
-    if (meta && (meta.title === 'New chat' || !meta.title)) {
-      meta.title = userMessage.slice(0, 60)
+    if (meta) {
+      if (meta.title === 'New chat' || !meta.title) meta.title = userMessage.slice(0, 60)
+      meta.cwd = this.cwd
       meta.updatedAt = Date.now()
       saveIndex(index)
       this.emit('sessions_changed', { sessions: loadIndex() })
@@ -483,7 +485,7 @@ You have: read_file, write_file, edit_file, list_dir, run_shell, web_search.
       saveMessages(this.currentSessionId, this.history)
       const idx2 = loadIndex()
       const m2   = idx2.find(s => s.id === this.currentSessionId)
-      if (m2) { m2.updatedAt = Date.now(); m2.messageCount = this.history.length; saveIndex(idx2) }
+      if (m2) { m2.updatedAt = Date.now(); m2.messageCount = this.history.length; m2.cwd = this.cwd; saveIndex(idx2) }
 
       this.emit('session_update',   { messageCount: this.history.length, mode: this.mode, model: cfg.model, cwd: this.cwd, sessionId: this.currentSessionId })
       this.emit('sessions_changed', { sessions: loadIndex() })
