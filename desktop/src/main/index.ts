@@ -2,7 +2,7 @@ import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { HeadlessEngine, loadConfig, saveConfig } from './engine'
-import { startSyncServer } from './syncServer'
+import { startSyncServer, getSyncToken } from './syncServer'
 import os from 'os'
 import fs from 'fs-extra'
 import path from 'path'
@@ -198,7 +198,6 @@ ipcMain.handle('window:pick-folder', async () => {
   return result.filePaths[0] || null
 })
 ipcMain.handle('sync:info', () => {
-  // Return local IPs so the desktop Settings modal can show them
   const nets = os.networkInterfaces()
   const ips: string[] = []
   for (const iface of Object.values(nets)) {
@@ -206,7 +205,22 @@ ipcMain.handle('sync:info', () => {
       if (info.family === 'IPv4' && !info.internal) ips.push(info.address)
     }
   }
-  return { port: 3747, ips }
+  return { port: 3747, ips, token: getSyncToken() }
+})
+
+ipcMain.handle('fs:readdir', async (_e, dirPath: string) => {
+  try {
+    const entries = await fs.promises.readdir(dirPath, { withFileTypes: true })
+    return entries.map(e => ({
+      name: e.name,
+      type: e.isDirectory() ? 'dir' : 'file',
+    })).sort((a, b) => {
+      if (a.type !== b.type) return a.type === 'dir' ? -1 : 1
+      return a.name.localeCompare(b.name)
+    })
+  } catch {
+    return []
+  }
 })
 
 ipcMain.handle('window:minimize', () => mainWindow?.minimize())

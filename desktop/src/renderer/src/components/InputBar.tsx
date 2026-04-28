@@ -71,6 +71,17 @@ export default function InputBar({ disabled, streaming, model, provider, planMod
 
   useEffect(() => { textareaRef.current?.focus() }, [])
 
+  // File manager inserts a path into the chat input
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const path = (e as CustomEvent<string>).detail
+      setText(prev => prev ? `${prev} ${path}` : path)
+      textareaRef.current?.focus()
+    }
+    window.addEventListener('mentis:insert-text', handler)
+    return () => window.removeEventListener('mentis:insert-text', handler)
+  }, [])
+
   // Auto-detect models when provider changes
   useEffect(() => {
     const staticList = PROVIDER_MODELS[provider]

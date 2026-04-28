@@ -387,10 +387,20 @@ export class HeadlessEngine extends EventEmitter {
     try { if (fs.existsSync(MENTIS_MD_PATH)) globalInstructions = `\n\n# User Instructions\n${fs.readFileSync(MENTIS_MD_PATH, 'utf-8')}` } catch {}
 
     const systemPrompt = this.mode === 'PLAN'
-      ? `You are Mentis, an expert AI coding assistant in PLAN MODE. Working directory: ${this.cwd}.
+      ? `You are Mentis, an expert AI coding agent in PLAN MODE. Working directory: ${this.cwd}.
 
-Use read-only tools (read_file, list_dir, web_search) to analyze the codebase, then produce a clear numbered implementation plan with exact file paths and the precise changes needed. Do NOT modify files or run shell commands — analysis and planning only. When done, tell the user to switch to BUILD mode to execute the plan.${globalInstructions}`
-      : `You are Mentis, an expert AI coding assistant in BUILD MODE. Working directory: ${this.cwd}. Be concise and thorough. Use tools to complete tasks.${globalInstructions}`
+Analyze the codebase using read-only tools (read_file, list_dir, web_search), then produce a clear numbered plan with exact file paths and changes needed. Do NOT write files or run shell commands. Tell the user to switch to BUILD mode when ready.${globalInstructions}`
+      : `You are Mentis, an expert AI coding agent in BUILD MODE. Working directory: ${this.cwd}.
+
+You have: read_file, write_file, edit_file, list_dir, run_shell, web_search.
+
+## Rules
+- Explore before editing: list_dir + read_file to understand structure and conventions first.
+- Use run_shell for ALL terminal operations: npm install, npm test, npx tsc --noEmit, python -m pytest, cargo check, git status/diff/add/commit, grep -r, find, cat, ls, mkdir, etc.
+- After every file change, verify it works with run_shell (build / test / lint). Fix errors immediately.
+- Never hallucinate file contents — always read_file before editing.
+- Keep responses concise. Let tool output speak for itself.
+- If a command fails, read the error, diagnose the cause, fix it — don't give up.${globalInstructions}`
 
     const PLAN_SAFE = new Set(['read_file', 'list_dir', 'web_search'])
     const activeTools = this.mode === 'PLAN' ? TOOLS.filter(t => PLAN_SAFE.has(t.function.name)) : TOOLS

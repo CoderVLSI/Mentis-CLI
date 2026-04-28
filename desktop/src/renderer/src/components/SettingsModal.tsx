@@ -5,7 +5,7 @@ interface Props {
   onSaved: () => void
 }
 
-type Tab = 'general' | 'providers' | 'about'
+type Tab = 'general' | 'providers' | 'sync' | 'about'
 
 const PROVIDERS = [
   {
@@ -64,8 +64,10 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
   const [showSerper, setShowSerper]           = useState(false)
   const [saving, setSaving]                   = useState(false)
   const [saved, setSaved]                     = useState(false)
+  const [syncInfo, setSyncInfo]               = useState<{ port: number; ips: string[]; token: string } | null>(null)
 
   useEffect(() => {
+    window.mentis.getSyncInfo().then(info => setSyncInfo(info as { port: number; ips: string[]; token: string }))
     window.mentis.getConfig().then(cfg => {
       setDefaultProvider((cfg.defaultProvider as string) || 'ollama')
       const keys: Record<string, string> = {}
@@ -112,7 +114,7 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
     setTimeout(() => { setSaved(false); onClose() }, 900)
   }
 
-  const NAV: [Tab, string][] = [['general', 'General'], ['providers', 'Providers'], ['about', 'About']]
+  const NAV: [Tab, string][] = [['general', 'General'], ['providers', 'Providers'], ['sync', 'Sync'], ['about', 'About']]
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm no-drag" onClick={onClose}>
@@ -269,6 +271,40 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
                     </div>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {tab === 'sync' && (
+              <div className="space-y-4">
+                <SectionTitle>Mobile Sync</SectionTitle>
+                <p className="text-[11px] text-muted -mt-2">Connect the Mentis mobile app to this desktop via Wi-Fi.</p>
+
+                {syncInfo ? (
+                  <>
+                    {/* Pairing token */}
+                    <div className="bg-[#0d0d0d] border border-border rounded-xl p-4 space-y-2">
+                      <div className="text-[10px] text-muted uppercase tracking-wider">Pairing Token</div>
+                      <div className="text-3xl font-mono font-bold text-purple-300 tracking-[0.3em]">{syncInfo.token}</div>
+                      <div className="text-[11px] text-muted">Enter this in the mobile app under Settings → Pairing Token</div>
+                    </div>
+
+                    {/* IP addresses */}
+                    <div className="space-y-1.5">
+                      <div className="text-[10px] text-muted uppercase tracking-wider">Desktop IP : Port</div>
+                      {syncInfo.ips.length === 0 ? (
+                        <p className="text-[11px] text-muted">No network interfaces found.</p>
+                      ) : syncInfo.ips.map(ip => (
+                        <div key={ip} className="flex items-center gap-2 bg-[#111] border border-border rounded-lg px-3 py-2">
+                          <code className="text-[13px] font-mono text-[#c8b3f5] flex-1">{ip}:{syncInfo.port}</code>
+                        </div>
+                      ))}
+                    </div>
+
+                    <p className="text-[11px] text-muted">Make sure your phone is on the same Wi-Fi network. The token resets each time Mentis Desktop restarts.</p>
+                  </>
+                ) : (
+                  <div className="text-[12px] text-muted">Loading sync info…</div>
+                )}
               </div>
             )}
 

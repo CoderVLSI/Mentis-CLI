@@ -33,7 +33,7 @@ export default function ChatScreen() {
     chat.clearChat()
     if (settings.syncMode === 'desktop') {
       try {
-        const { id } = await newSession(settings.desktopHost)
+        const { id } = await newSession(settings.desktopHost, settings.syncToken)
         chat.setActiveSession(id)
       } catch { /* ignore — chat already cleared */ }
     }
@@ -63,7 +63,7 @@ export default function ChatScreen() {
     const next: Mode = force ?? (chat.mode === 'PLAN' ? 'BUILD' : 'PLAN')
     chat.setMode(next)
     if (settings.syncMode === 'desktop') {
-      await setDesktopMode(settings.desktopHost, next).catch(() => {})
+      await setDesktopMode(settings.desktopHost, next, settings.syncToken).catch(() => {})
     }
   }, [chat, settings])
 
@@ -74,7 +74,7 @@ export default function ChatScreen() {
     chat.upsertTool({ ...tool, status: approved ? 'approved' : 'denied', needsApproval: false })
 
     if (settings.syncMode === 'desktop') {
-      await approveAction(settings.desktopHost, id, approved).catch(() => {})
+      await approveAction(settings.desktopHost, id, approved, settings.syncToken).catch(() => {})
     } else {
       // Resolve the Promise held in the standalone engine loop
       const resolve = pendingApprovals.current.get(id)
@@ -106,6 +106,7 @@ export default function ChatScreen() {
         text,
         chat.activeSession,
         (evt: SyncEvent) => {
+
           switch (evt.type) {
             case 'thinking':
               chat.setThinking(true)
@@ -151,6 +152,7 @@ export default function ChatScreen() {
               break
           }
         },
+        settings.syncToken,
       )
     } else {
       // ── Standalone mode: tool-enabled engine with GitHub connector ─────

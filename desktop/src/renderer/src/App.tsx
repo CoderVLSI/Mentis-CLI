@@ -303,14 +303,25 @@ export default function App() {
     else { setPanelVisible(true); setPanelTab('browser') }
   }, [panelVisible, panelTab])
 
+  const toggleFiles = useCallback(() => {
+    if (panelVisible && panelTab === 'files') { setPanelVisible(false) }
+    else { setPanelVisible(true); setPanelTab('files') }
+  }, [panelVisible, panelTab])
+
+  const insertPathIntoChat = useCallback((p: string) => {
+    // Dispatch a custom event that InputBar can listen to for pre-filling text
+    window.dispatchEvent(new CustomEvent('mentis:insert-text', { detail: p }))
+  }, [])
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === '`' && !e.shiftKey) { e.preventDefault(); toggleTerminal() }
-      if (e.ctrlKey && e.key === '`' &&  e.shiftKey) { e.preventDefault(); toggleBrowser() }
+      if (e.ctrlKey && e.key === '`' && !e.shiftKey && !e.altKey) { e.preventDefault(); toggleTerminal() }
+      if (e.ctrlKey && e.key === '`' &&  e.shiftKey && !e.altKey) { e.preventDefault(); toggleBrowser() }
+      if (e.ctrlKey && e.key === '`' &&  e.altKey)                { e.preventDefault(); toggleFiles() }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [toggleTerminal, toggleBrowser])
+  }, [toggleTerminal, toggleBrowser, toggleFiles])
 
   const onSettingsSaved = useCallback(async () => {
     const cfg  = await window.mentis.getConfig()
@@ -365,9 +376,11 @@ export default function App() {
             visible={panelVisible}
             tab={panelTab}
             height={panelHeight}
+            cwd={session.cwd}
             onTabChange={setPanelTab}
             onHeightChange={setPanelHeight}
             onClose={() => setPanelVisible(false)}
+            onInsertPath={insertPathIntoChat}
           />
           <InputBar
             disabled={streaming || thinking}

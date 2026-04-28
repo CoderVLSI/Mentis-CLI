@@ -1,19 +1,22 @@
 import { useCallback, useRef } from 'react'
 import TerminalPane from './TerminalPane'
 import BrowserPane from './BrowserPane'
+import FileManagerPane from './FileManagerPane'
 
-export type PanelTab = 'terminal' | 'browser'
+export type PanelTab = 'terminal' | 'browser' | 'files'
 
 interface Props {
-  visible:     boolean
-  tab:         PanelTab
-  height:      number
-  onTabChange: (tab: PanelTab) => void
+  visible:      boolean
+  tab:          PanelTab
+  height:       number
+  cwd:          string
+  onTabChange:  (tab: PanelTab) => void
   onHeightChange: (h: number) => void
-  onClose:     () => void
+  onClose:      () => void
+  onInsertPath: (p: string) => void
 }
 
-export default function BottomPanel({ visible, tab, height, onTabChange, onHeightChange, onClose }: Props) {
+export default function BottomPanel({ visible, tab, height, cwd, onTabChange, onHeightChange, onClose, onInsertPath }: Props) {
   const dragRef = useRef<{ startY: number; startH: number } | null>(null)
 
   const onDragStart = useCallback((e: React.MouseEvent) => {
@@ -55,6 +58,9 @@ export default function BottomPanel({ visible, tab, height, onTabChange, onHeigh
           <TabBtn active={tab === 'browser'} onClick={() => onTabChange('browser')}>
             <BrowserIcon /> Browser
           </TabBtn>
+          <TabBtn active={tab === 'files'} onClick={() => onTabChange('files')}>
+            <FilesIcon /> Files
+          </TabBtn>
         </div>
 
         {/* Utility buttons */}
@@ -69,10 +75,13 @@ export default function BottomPanel({ visible, tab, height, onTabChange, onHeigh
         </button>
       </div>
 
-      {/* Content — both panes always mounted, shown/hidden via CSS */}
+      {/* Content */}
       <div className="flex-1 overflow-hidden min-h-0">
         <TerminalPane active={tab === 'terminal' && visible} />
         <BrowserPane  active={tab === 'browser'  && visible} />
+        {tab === 'files' && visible && (
+          <FileManagerPane active rootPath={cwd} onInsertPath={onInsertPath} />
+        )}
       </div>
     </div>
   )
@@ -111,6 +120,14 @@ function BrowserIcon() {
       <rect x="2" y="3" width="20" height="18" rx="2"/>
       <line x1="2" y1="9" x2="22" y2="9"/>
       <line x1="8" y1="3" x2="8" y2="9"/>
+    </svg>
+  )
+}
+
+function FilesIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
     </svg>
   )
 }

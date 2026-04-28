@@ -52,6 +52,12 @@ contextBridge.exposeInMainWorld('mentis', {
   terminalResize: (id: string, cols: number, rows: number) => ipcRenderer.invoke('terminal:resize', id, cols, rows),
   terminalKill:   (id: string)                 => ipcRenderer.invoke('terminal:kill', id),
 
+  // File manager
+  readDir: (dirPath: string) => ipcRenderer.invoke('fs:readdir', dirPath),
+
+  // Sync info (mobile pairing)
+  getSyncInfo: () => ipcRenderer.invoke('sync:info'),
+
   // Engine event subscriptions
   on: (channel: string, fn: (...args: unknown[]) => void) => {
     const listener = (_e: Electron.IpcRendererEvent, ...args: unknown[]) => fn(...args)

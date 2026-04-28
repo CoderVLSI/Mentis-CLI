@@ -36,6 +36,7 @@ export type Provider = 'anthropic' | 'openai' | 'gemini' | 'grok' | 'kimi' | 'gl
 export interface Settings {
   syncMode:       SyncMode
   desktopHost:    string
+  syncToken:      string   // pairing token shown in desktop Settings
   // API keys (stored in SecureStore)
   anthropicKey:   string
   openaiKey:      string
@@ -64,6 +65,7 @@ interface SettingsState extends Settings {
 const DEFAULTS: Settings = {
   syncMode:      'standalone',
   desktopHost:   '192.168.1.1:3747',
+  syncToken:     '',
   anthropicKey:  '',
   openaiKey:     '',
   geminiKey:     '',

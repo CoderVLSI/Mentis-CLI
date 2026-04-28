@@ -103,6 +103,18 @@ export default function SettingsScreen() {
                   keyboardType="url"
                 />
               </Field>
+              <Field label="Pairing Token" hint="6-char code shown in Desktop → Settings → Sync">
+                <TextInput
+                  style={styles.input}
+                  value={settings.syncToken}
+                  onChangeText={v => settings.save({ syncToken: v.toUpperCase().slice(0, 6) })}
+                  placeholder="ABC123"
+                  placeholderTextColor={C.muted}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  maxLength={6}
+                />
+              </Field>
               <TouchableOpacity
                 style={[styles.btn, testing && styles.btnDisabled]}
                 onPress={testConnection}

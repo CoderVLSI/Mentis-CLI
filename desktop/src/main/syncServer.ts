@@ -21,6 +21,11 @@ import { HeadlessEngine, loadConfig } from './engine'
 
 const DEFAULT_PORT = 3747
 
+// Generate a random 6-char alphanumeric pairing token once per server start
+const CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+let _syncToken = Array.from({ length: 6 }, () => CHARS[Math.floor(Math.random() * CHARS.length)]).join('')
+export function getSyncToken() { return _syncToken }
+
 function json(res: http.ServerResponse, data: unknown, status = 200) {
   res.writeHead(status, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
   res.end(JSON.stringify(data))
@@ -29,7 +34,12 @@ function json(res: http.ServerResponse, data: unknown, status = 200) {
 function cors(res: http.ServerResponse) {
   res.setHeader('Access-Control-Allow-Origin',  '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+}
+
+function authorized(req: http.IncomingMessage): boolean {
+  const header = req.headers['authorization'] ?? ''
+  return header === `Bearer ${_syncToken}`
 }
 
 async function readBody(req: http.IncomingMessage): Promise<string> {
@@ -54,9 +64,15 @@ export function startSyncServer(engine: HeadlessEngine, port = DEFAULT_PORT): ht
     const method   = req.method || 'GET'
 
     try {
-      // ── Health ──────────────────────────────────────────────────────────────
+      // ── Health (public — no auth required) ─────────────────────────────────
       if (pathname === '/health' && method === 'GET') {
         json(res, { ok: true, version: '1.0', app: 'Mentis Desktop' })
+        return
+      }
+
+      // ── Auth gate — all other endpoints require the pairing token ───────────
+      if (!authorized(req)) {
+        json(res, { error: 'Unauthorized — wrong or missing pairing token' }, 401)
         return
       }
 
