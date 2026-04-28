@@ -346,6 +346,7 @@ export default function App() {
         onOpenSettings={() => setSettingsOpen(true)}
         onToggleTerminal={toggleTerminal}
         onToggleBrowser={toggleBrowser}
+        onToggleFiles={toggleFiles}
         mode={session.mode}
         panelVisible={panelVisible}
         panelTab={panelTab}

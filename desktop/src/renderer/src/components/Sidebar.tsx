@@ -13,7 +13,7 @@ interface Props {
   onOpenSettings: () => void
 }
 
-type Panel = 'sessions' | 'search' | 'mcp' | 'hooks' | 'files'
+type Panel = 'sessions' | 'search' | 'mcp' | 'hooks'
 type ChatGroupMode = 'folder' | 'time'
 
 function relTime(ts: number): string {
@@ -122,7 +122,6 @@ export default function Sidebar({ session, sessions, onNew, onSwitch, onDelete, 
       {/* Nav items */}
       <div className="px-2 py-1 flex flex-col gap-0.5">
         {navItem('search', <SearchIcon />, 'Search')}
-        {navItem('files',  <FilesNavIcon />, 'File Manager')}
         {navItem('mcp',    <McpIcon />,    'MCP Servers')}
         {navItem('hooks',  <HooksIcon />,  'Hooks')}
       </div>
@@ -136,7 +135,6 @@ export default function Sidebar({ session, sessions, onNew, onSwitch, onDelete, 
         )}
         {panel === 'mcp' && <McpPanel servers={mcpList} />}
         {panel === 'hooks' && <HooksPanel hooks={hooks} />}
-        {panel === 'files' && <SidebarFileManager cwd={session.cwd} />}
         {panel === 'sessions' && (
           <>
             {/* Group mode toggle */}
@@ -248,70 +246,6 @@ function SessionRow({ s, active, hoverId, setHoverId, onSwitch, onDelete, indent
   )
 }
 
-// ── Sidebar file manager ──────────────────────────────────────────────────────
-
-function SidebarFileManager({ cwd }: { cwd: string }) {
-  const [path,    setPath]    = useState(cwd || '')
-  const [entries, setEntries] = useState<Array<{name: string; type: 'file'|'dir'}>>([])
-  const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    if (!path) return
-    setLoading(true)
-    window.mentis.readDir(path)
-      .then(r => setEntries(r as Array<{name: string; type: 'file'|'dir'}>))
-      .finally(() => setLoading(false))
-  }, [path])
-
-  const up = () => {
-    const parts = path.replace(/\\/g, '/').split('/').filter(Boolean)
-    if (parts.length > 1) { parts.pop(); setPath('/' + parts.join('/')) }
-  }
-
-  const folderName = path.replace(/\\/g, '/').split('/').filter(Boolean).pop() || path
-
-  return (
-    <div className="pt-1">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-1 px-2 py-1 mb-1">
-        <button onClick={up} className="text-muted/50 hover:text-muted transition-colors text-[10px]" title="Up">‹</button>
-        <span className="text-[10px] text-muted font-mono truncate flex-1" title={path}>{folderName}</span>
-        <button onClick={() => setPath(p => p)} className="text-muted/40 hover:text-muted text-[10px]" title="Refresh">↺</button>
-      </div>
-
-      {loading && <div className="text-center text-muted text-[10px] py-3">Loading…</div>}
-
-      {!loading && entries.map(e => {
-        const fullPath = path.replace(/[\\/]+$/, '') + '/' + e.name
-        return (
-          <button
-            key={e.name}
-            onClick={() => {
-              if (e.type === 'dir') setPath(fullPath)
-              else window.dispatchEvent(new CustomEvent('mentis:insert-text', { detail: fullPath }))
-            }}
-            className="flex items-center gap-1.5 w-full px-2 py-1 rounded-lg hover:bg-white/[0.04] text-left text-[10px] group"
-          >
-            {e.type === 'dir'
-              ? <span className="text-[#8b7fd4] shrink-0">▸</span>
-              : <span className="text-muted/40 shrink-0">·</span>
-            }
-            <span className={`truncate ${e.type === 'dir' ? 'text-[#b0a4e8]' : 'text-muted'}`}>{e.name}</span>
-          </button>
-        )
-      })}
-
-      {!loading && entries.length === 0 && path && (
-        <div className="text-center text-muted/40 text-[10px] py-3">Empty</div>
-      )}
-
-      {!path && (
-        <div className="text-center text-muted/40 text-[10px] py-4">No folder open</div>
-      )}
-    </div>
-  )
-}
-
 // ── Sub-panels ────────────────────────────────────────────────────────────────
 
 function SearchPanel({ sessions, onSwitch, currentId }: { sessions: SessionMeta[]; onSwitch: (id: string) => void; currentId?: string }) {
@@ -400,8 +334,7 @@ function HooksPanel({ hooks }: { hooks: Record<string, HookEntry[]> }) {
 const PlusIcon    = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
 const SearchIcon  = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted shrink-0"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
 const McpIcon     = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted shrink-0"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
-const HooksIcon     = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted shrink-0"><polyline points="13 2 13 9 22 9"/><polyline points="11 22 11 15 2 15"/><path d="M22 9 12 19 2 9"/></svg>
-const FilesNavIcon  = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted shrink-0"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+const HooksIcon   = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted shrink-0"><polyline points="13 2 13 9 22 9"/><polyline points="11 22 11 15 2 15"/><path d="M22 9 12 19 2 9"/></svg>
 const ChatIcon    = () => <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted/60 shrink-0"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
 const XIcon       = () => <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
 const FolderIcon  = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>

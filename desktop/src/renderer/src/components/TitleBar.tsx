@@ -13,6 +13,7 @@ interface Props {
   onOpenSettings:   () => void
   onToggleTerminal: () => void
   onToggleBrowser:  () => void
+  onToggleFiles:    () => void
   mode:             'PLAN' | 'BUILD'
   panelVisible:     boolean
   panelTab:         PanelTab
@@ -32,7 +33,7 @@ export default function TitleBar(props: Props) {
 
 function useMenus(props: Props) {
   const { onNewChat, onPickFolder, onExportChat, onToggleMode, onClearChat, mode,
-          onToggleTerminal, onToggleBrowser, panelVisible, panelTab } = props
+          onToggleTerminal, onToggleBrowser, onToggleFiles, panelVisible, panelTab } = props
 
   const fileMenu: MenuItem[] = [
     { type: 'item', label: 'New Chat',      shortcut: 'Ctrl+N', onClick: onNewChat },
@@ -47,8 +48,9 @@ function useMenus(props: Props) {
     { type: 'item', label: 'PLAN mode',  onClick: () => { if (mode !== 'PLAN')  onToggleMode() }, checked: mode === 'PLAN' },
     { type: 'item', label: 'BUILD mode', onClick: () => { if (mode !== 'BUILD') onToggleMode() }, checked: mode === 'BUILD' },
     { type: 'sep' },
-    { type: 'item', label: 'Terminal', shortcut: 'Ctrl+`',       onClick: onToggleTerminal, checked: panelVisible && panelTab === 'terminal' },
-    { type: 'item', label: 'Browser',  shortcut: 'Ctrl+Shift+`', onClick: onToggleBrowser,  checked: panelVisible && panelTab === 'browser'  },
+    { type: 'item', label: 'Terminal',     shortcut: 'Ctrl+`',       onClick: onToggleTerminal, checked: panelVisible && panelTab === 'terminal' },
+    { type: 'item', label: 'Browser',      shortcut: 'Ctrl+Shift+`', onClick: onToggleBrowser,  checked: panelVisible && panelTab === 'browser'  },
+    { type: 'item', label: 'File Manager', shortcut: 'Ctrl+Alt+`',   onClick: onToggleFiles,    checked: panelVisible && panelTab === 'files'    },
   ]
 
   const helpMenu: MenuItem[] = [
@@ -68,37 +70,31 @@ function useMenus(props: Props) {
 // ── Panel toggle icon buttons ──────────────────────────────────────────────────
 
 function PanelIcons({ props }: { props: Props }) {
-  const { onToggleTerminal, onToggleBrowser, panelVisible, panelTab } = props
+  const { onToggleTerminal, onToggleBrowser, onToggleFiles, panelVisible, panelTab } = props
+  const btn = (active: boolean, title: string, onClick: () => void, icon: React.ReactNode) => (
+    <button onClick={onClick} title={title}
+      className={`p-1.5 rounded transition-colors ${active ? 'text-accent bg-accent/10' : 'text-muted hover:text-[#ccc] hover:bg-white/[0.05]'}`}
+    >{icon}</button>
+  )
   return (
     <div className="flex items-center no-drag">
-      <button
-        onClick={onToggleTerminal}
-        title="Terminal  (Ctrl+`)"
-        className={`p-1.5 rounded transition-colors ${
-          panelVisible && panelTab === 'terminal'
-            ? 'text-accent bg-accent/10'
-            : 'text-muted hover:text-[#ccc] hover:bg-white/[0.05]'
-        }`}
-      >
+      {btn(panelVisible && panelTab === 'terminal', 'Terminal  (Ctrl+`)', onToggleTerminal,
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
         </svg>
-      </button>
-      <button
-        onClick={onToggleBrowser}
-        title="Browser  (Ctrl+Shift+`)"
-        className={`p-1.5 rounded transition-colors ${
-          panelVisible && panelTab === 'browser'
-            ? 'text-accent bg-accent/10'
-            : 'text-muted hover:text-[#ccc] hover:bg-white/[0.05]'
-        }`}
-      >
+      )}
+      {btn(panelVisible && panelTab === 'browser', 'Browser  (Ctrl+Shift+`)', onToggleBrowser,
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <rect x="2" y="3" width="20" height="18" rx="2"/>
           <line x1="2" y1="9" x2="22" y2="9"/>
           <line x1="8" y1="3" x2="8" y2="9"/>
         </svg>
-      </button>
+      )}
+      {btn(panelVisible && panelTab === 'files', 'File Manager  (Ctrl+Alt+`)', onToggleFiles,
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+        </svg>
+      )}
     </div>
   )
 }
