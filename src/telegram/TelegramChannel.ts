@@ -107,13 +107,31 @@ export function stopCliTelegramChannel()    { _stop = true }
 export function isCliTelegramRunning()      { return _running }
 export function getCliBotUsername()         { return _username }
 
-// Track chat IDs that have interacted — scheduled results go here
+// Persisted chat IDs so scheduled results reach users across restarts
+const CHATS_PATH = path.join(os.homedir(), '.mentis', 'telegram_chats.json')
+
+function loadChatIds(): Set<number> {
+  try { return new Set(JSON.parse(fs.readFileSync(CHATS_PATH, 'utf-8'))) }
+  catch { return new Set() }
+}
+
+function saveChatId(id: number): void {
+  const ids = loadChatIds()
+  if (ids.has(id)) return
+  ids.add(id)
+  try {
+    if (!fs.existsSync(path.dirname(CHATS_PATH))) fs.mkdirSync(path.dirname(CHATS_PATH), { recursive: true })
+    fs.writeFileSync(CHATS_PATH, JSON.stringify([...ids]))
+  } catch {}
+}
+
 const _activeChatIds = new Set<number>()
 
-/** Send a message to every chat that has talked to the bot this session */
+/** Send a message to every chat that has ever talked to the bot */
 export async function broadcastToActiveTelegramChats(text: string): Promise<void> {
-  if (!_token || _activeChatIds.size === 0) return
-  for (const chatId of _activeChatIds) {
+  if (!_token) return
+  const ids = _activeChatIds.size > 0 ? _activeChatIds : loadChatIds()
+  for (const chatId of ids) {
     await sendMessage(_token, chatId, text).catch(() => {})
   }
 }
@@ -442,6 +460,10 @@ export async function startCliTelegramChannel(
   _username = ''
   _token    = token
   _activeChatIds.clear()
+  // Seed from disk so reminders fire even if no message arrived this session
+  for (const id of loadChatIds()) _activeChatIds.add(id)
+  // Also seed from allowedChatIds config (known authorized users)
+  for (const id of allowedChatIds) _activeChatIds.add(id)
 
   const me = await tgCall(token, 'getMe')
   if (!me.ok) { console.error('[telegram] Invalid bot token'); return }
@@ -488,6 +510,7 @@ export async function startCliTelegramChannel(
         const chatId  = m.chat.id
         const isGroup = m.chat.type === 'group' || m.chat.type === 'supergroup'
         _activeChatIds.add(chatId)
+        saveChatId(chatId)
 
         // In groups, only respond when mentioned or replied to
         if (isGroup) {
