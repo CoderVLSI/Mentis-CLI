@@ -44,6 +44,8 @@ import { TodoWriteTool, TodoReadTool, clearTodos } from '../tools/TodoTools';
 import { WebFetchTool } from '../tools/WebFetchTool';
 import { InstructionsLoader } from '../utils/InstructionsLoader';
 import { AgentManager } from '../agents/AgentManager';
+import { AgentDefinition } from '../agents/AgentDefinition';
+import { SubAgent } from '../agents/SubAgent';
 import { SpawnAgentTool } from '../tools/SpawnAgentTool';
 import { SpawnAgentsParallelTool } from '../tools/SpawnAgentsParallelTool';
 import { SidekickTool } from '../tools/SidekickTool';
@@ -53,7 +55,8 @@ import { SidekickManager } from '../sidekick/SidekickManager';
 import { renderBanner, renderCard, renderInteraction } from '../sidekick/SidekickDisplay';
 import { MemoryManager } from '../memory/MemoryManager';
 import { startCliTelegramChannel, stopCliTelegramChannel, isCliTelegramRunning, getCliBotUsername } from '../telegram/TelegramChannel'
-import { Scheduler, loadTasks, saveTasks, parseInterval, ScheduledTask } from '../scheduler/Scheduler';
+import { Scheduler, loadTasks, saveTasks, parseInterval, ScheduledTask } from '../scheduler/Scheduler'
+import { WebhookServer, loadWebhookConfig, saveWebhookConfig } from '../webhook/WebhookServer';
 
 const HISTORY_FILE     = path.join(os.homedir(), '.mentis_history');
 const GLOBAL_SESS_DIR  = path.join(os.homedir(), '.mentis', 'sessions');
@@ -99,6 +102,8 @@ const ALL_COMMANDS = [
     { value: '/git',      name: '/git          Interactive git workflow (stage, diff, commit, push)' },
     { value: '/share',    name: '/share        Export session as markdown file' },
     { value: '/schedule', name: '/schedule     Manage scheduled agent tasks (cron)' },
+    { value: '/webhook',  name: '/webhook      Start an HTTP server to trigger agent via POST' },
+    { value: '/agents',   name: '/agents       List agents, spawn one ad-hoc, or create custom' },
     { value: '/exit',     name: '/exit         Save session & exit' },
 ];
 
@@ -140,6 +145,7 @@ export class ReplManager {
     private sessionAllowedTools: Set<string> = new Set(); // tools allowed for whole session
     private sessionDeniedTools: Set<string> = new Set();  // tools denied for whole session
     private scheduler: Scheduler;
+    private webhookServer: WebhookServer;
 
     constructor(options: CliOptions = { resume: false, yolo: false, headless: false }) {
         this.options = options;
@@ -159,6 +165,10 @@ export class ReplManager {
         this.memoryManager = new MemoryManager();
         this.scheduler = new Scheduler(async (task) => {
             await this.handleChat(task.prompt)
+        })
+        this.webhookServer = new WebhookServer(async (prompt, source) => {
+            process.stdout.write(`\n${chalk.cyan(`[Webhook ${source}]`)} ${prompt}\n`)
+            await this.handleChat(prompt)
         })
         this.instructionsLoader = new InstructionsLoader();
         this.projectInstructions = this.instructionsLoader.load();
@@ -371,6 +381,11 @@ export class ReplManager {
 
     public async start() {
         this.scheduler.start()
+        // Auto-start webhook if previously enabled
+        const whCfg = loadWebhookConfig()
+        if (whCfg.enabled) {
+            this.webhookServer.start(whCfg).catch(() => {})
+        }
         await this.hooksManager.run('SessionStart', { sessionId: this.sessionId });
 
         if (!this.instructionsLoader.hasInstructions()) {
@@ -651,6 +666,12 @@ export class ReplManager {
             case '/schedule':
                 await this.handleScheduleCommand();
                 break;
+            case '/webhook':
+                await this.handleWebhookCommand();
+                break;
+            case '/agents':
+                await this.handleAgentsCommand();
+                break;
             case '/memory':
                 await this.handleMemoryCommand(args);
                 break;
@@ -664,6 +685,7 @@ export class ReplManager {
                 this.mcpManager.disconnectAll();
                 this.sidekickManager.endSession();
                 this.scheduler.stop();
+                this.webhookServer.stop();
                 // Extract and persist memories from this session in background
                 await this.extractAndSaveMemories();
                 console.log(chalk.green('Session saved. Goodbye!'));
@@ -1352,6 +1374,188 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
         const outPath = path.resolve(process.cwd(), filename.trim() || defaultName);
         fs.writeFileSync(outPath, lines.join('\n'));
         console.log(chalk.green(`  ✓ Session exported to ${outPath}`));
+    }
+
+    private async handleAgentsCommand() {
+        const agentList = this.agentManager.listAgents()
+        const AGENTS_DIR = path.join(os.homedir(), '.mentis', 'agents')
+
+        console.log(chalk.cyan('\n  ── Agents ─────────────────────────────────────────'))
+        for (const a of agentList) {
+            const tag = a.filePath ? chalk.dim('(custom)') : chalk.dim('(built-in)')
+            console.log(`  ${chalk.bold(a.name)} ${tag}`)
+            console.log(chalk.dim(`    ${a.description}`))
+        }
+        console.log()
+
+        const { action } = await inquirer.prompt([{
+            type:    'list',
+            name:    'action',
+            message: 'Agents',
+            prefix:  '',
+            choices: [
+                { name: 'Spawn agent ad-hoc',  value: 'spawn'  },
+                { name: 'Create custom agent', value: 'create' },
+                { name: 'Delete custom agent', value: 'delete' },
+                { name: 'Back',                value: 'back'   },
+            ],
+        }])
+
+        if (action === 'back') return
+
+        if (action === 'spawn') {
+            const { agentName } = await inquirer.prompt([{
+                type:    'list',
+                name:    'agentName',
+                message: 'Which agent?',
+                choices: agentList.map(a => ({ name: `${a.name} — ${a.description}`, value: a.name })),
+            }])
+            const { task } = await inquirer.prompt([{
+                type:    'input',
+                name:    'task',
+                message: 'Task for the agent:',
+                validate: (v: string) => v.trim().length > 0 || 'Enter a task',
+            }])
+            const def = this.agentManager.getAgent(agentName)!
+            console.log(chalk.cyan(`\n  ⚡ Spawning ${agentName}…\n`))
+            const spinner = ora({ text: 'Agent working…', color: 'cyan' }).start()
+            try {
+                const subAgent = new SubAgent(def, this.modelClient, this.tools)
+                const result   = await subAgent.run(task.trim())
+                spinner.stop()
+                console.log(chalk.dim('\n  ── Result ────────────────────────────────────────'))
+                console.log(result)
+                // Also add to conversation so the main agent sees it
+                this.history.push({ role: 'assistant', content: `[Agent: ${agentName}]\n${result}` })
+            } catch (e: any) {
+                spinner.stop()
+                console.log(chalk.red(`  Agent error: ${e.message}`))
+            }
+        }
+
+        if (action === 'create') {
+            const { name } = await inquirer.prompt([{
+                type:    'input',
+                name:    'name',
+                message: 'Agent name (slug, e.g. sql-expert):',
+                validate: (v: string) => /^[a-z0-9-]+$/.test(v.trim()) || 'Use lowercase letters, numbers, hyphens',
+            }])
+            const { description } = await inquirer.prompt([{
+                type:    'input',
+                name:    'description',
+                message: 'One-line description:',
+                validate: (v: string) => v.trim().length > 5 || 'Enter a description',
+            }])
+            const { systemPrompt } = await inquirer.prompt([{
+                type:    'editor',
+                name:    'systemPrompt',
+                message: 'System prompt (opens editor):',
+            }])
+            if (!fs.existsSync(AGENTS_DIR)) fs.mkdirSync(AGENTS_DIR, { recursive: true })
+            const filePath = path.join(AGENTS_DIR, `${name.trim()}.md`)
+            const content  = `---\nname: ${name.trim()}\ndescription: ${description.trim()}\n---\n\n${systemPrompt.trim()}\n`
+            fs.writeFileSync(filePath, content)
+            console.log(chalk.green(`  ✓ Agent "${name.trim()}" saved to ${filePath}`))
+            console.log(chalk.dim('  Restart Mentis or run /agents to see the new agent.'))
+        }
+
+        if (action === 'delete') {
+            const custom = agentList.filter(a => a.filePath?.startsWith(AGENTS_DIR))
+            if (custom.length === 0) {
+                console.log(chalk.dim('  No custom agents to delete (built-ins cannot be deleted).'))
+                return
+            }
+            const { name } = await inquirer.prompt([{
+                type:    'list',
+                name:    'name',
+                message: 'Delete which custom agent?',
+                choices: custom.map(a => ({ name: a.name, value: a.name })),
+            }])
+            const agent = custom.find(a => a.name === name)!
+            fs.unlinkSync(agent.filePath!)
+            console.log(chalk.yellow(`  Agent "${name}" deleted.`))
+        }
+    }
+
+    private async handleWebhookCommand() {
+        const cfg     = loadWebhookConfig()
+        const running = this.webhookServer.isRunning()
+        const port    = this.webhookServer.port() ?? cfg.port
+
+        console.log(chalk.cyan('\n  ── Webhook Server ─────────────────────────────────'))
+        if (running) {
+            console.log(chalk.green(`  ● Listening on http://127.0.0.1:${port}`))
+            console.log(chalk.dim(`  POST http://127.0.0.1:${port}/run`))
+            console.log(chalk.dim(`  Body: { "prompt": "...", "token": "${cfg.token || '<none>'}" }`))
+        } else {
+            console.log(chalk.dim('  ○ Not running'))
+        }
+        console.log(chalk.dim(`  Port: ${cfg.port}  |  Auth token: ${cfg.token || '(none)'}`))
+        console.log()
+
+        const { action } = await inquirer.prompt([{
+            type:    'list',
+            name:    'action',
+            message: 'Webhook Server',
+            prefix:  '',
+            choices: [
+                { name: running ? 'Stop server' : 'Start server', value: 'toggle' },
+                { name: 'Set port',         value: 'port'   },
+                { name: 'Set secret token', value: 'token'  },
+                { name: 'Show curl example', value: 'curl'  },
+                { name: 'Back',             value: 'back'   },
+            ],
+        }])
+
+        if (action === 'back') return
+
+        if (action === 'toggle') {
+            if (running) {
+                this.webhookServer.stop()
+                saveWebhookConfig({ ...cfg, enabled: false })
+                console.log(chalk.yellow('  Webhook server stopped.'))
+            } else {
+                try {
+                    await this.webhookServer.start(cfg)
+                    saveWebhookConfig({ ...cfg, enabled: true })
+                    console.log(chalk.green(`  ✓ Listening on http://127.0.0.1:${this.webhookServer.port()}`))
+                } catch (e: any) {
+                    console.log(chalk.red(`  Failed to start: ${e.message}`))
+                }
+            }
+        }
+
+        if (action === 'port') {
+            const { value } = await inquirer.prompt([{
+                type:    'input',
+                name:    'value',
+                message: 'Port number:',
+                default: String(cfg.port),
+                validate: (v: string) => /^\d+$/.test(v) && +v > 0 && +v < 65536 || 'Enter a valid port',
+            }])
+            saveWebhookConfig({ ...cfg, port: parseInt(value, 10) })
+            console.log(chalk.green(`  ✓ Port set to ${value} (restart server to apply).`))
+        }
+
+        if (action === 'token') {
+            const { value } = await inquirer.prompt([{
+                type:    'input',
+                name:    'value',
+                message: 'Secret token (empty = no auth):',
+                default: cfg.token,
+            }])
+            saveWebhookConfig({ ...cfg, token: value.trim() })
+            console.log(chalk.green('  ✓ Token saved.'))
+        }
+
+        if (action === 'curl') {
+            const p   = this.webhookServer.port() ?? cfg.port
+            const tok = cfg.token ? `, "token": "${cfg.token}"` : ''
+            console.log(chalk.dim('\n  Example:'))
+            console.log(chalk.white(`  curl -s -X POST http://127.0.0.1:${p}/run \\`))
+            console.log(chalk.white(`    -H 'Content-Type: application/json' \\`))
+            console.log(chalk.white(`    -d '{"prompt": "summarise git log --oneline -10"${tok}}'`))
+        }
     }
 
     private async handleScheduleCommand() {
