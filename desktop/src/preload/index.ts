@@ -34,8 +34,10 @@ contextBridge.exposeInMainWorld('mentis', {
   listModels: () => ipcRenderer.invoke('models:list'),
 
   // MCP + Hooks
-  listMcp:   () => ipcRenderer.invoke('mcp:list'),
-  listHooks: () => ipcRenderer.invoke('hooks:list'),
+  listMcp:      () => ipcRenderer.invoke('mcp:list'),
+  installMcp:   (s: { name: string; command: string; args?: string[] }) => ipcRenderer.invoke('mcp:install', s),
+  uninstallMcp: (name: string) => ipcRenderer.invoke('mcp:uninstall', name),
+  listHooks:    () => ipcRenderer.invoke('hooks:list'),
 
   // Window
   pickFolder: () => ipcRenderer.invoke('window:pick-folder'),

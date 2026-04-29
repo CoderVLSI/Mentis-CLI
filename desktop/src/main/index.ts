@@ -199,6 +199,31 @@ ipcMain.handle('mcp:list', () => {
   } catch { return [] }
 })
 
+ipcMain.handle('mcp:install', (_e, server: { name: string; command: string; args?: string[] }) => {
+  try {
+    let raw: Record<string, unknown> = {}
+    try { raw = JSON.parse(fs.readFileSync(MCP_PATH, 'utf-8')) } catch {}
+    const servers = (raw.mcpServers as Record<string, unknown>) || {}
+    servers[server.name] = { command: server.command, ...(server.args ? { args: server.args } : {}) }
+    raw.mcpServers = servers
+    fs.ensureDirSync(path.dirname(MCP_PATH))
+    fs.writeFileSync(MCP_PATH, JSON.stringify(raw, null, 2))
+    return { ok: true }
+  } catch (e: unknown) { return { ok: false, error: (e as Error).message } }
+})
+
+ipcMain.handle('mcp:uninstall', (_e, name: string) => {
+  try {
+    let raw: Record<string, unknown> = {}
+    try { raw = JSON.parse(fs.readFileSync(MCP_PATH, 'utf-8')) } catch {}
+    const servers = (raw.mcpServers as Record<string, unknown>) || {}
+    delete servers[name]
+    raw.mcpServers = servers
+    fs.writeFileSync(MCP_PATH, JSON.stringify(raw, null, 2))
+    return { ok: true }
+  } catch (e: unknown) { return { ok: false, error: (e as Error).message } }
+})
+
 ipcMain.handle('hooks:list', () => {
   try {
     const s = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8'))

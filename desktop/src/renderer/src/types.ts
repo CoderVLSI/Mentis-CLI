@@ -109,8 +109,10 @@ declare global {
       listModels: () => Promise<string[]>
 
       // MCP + Hooks
-      listMcp:   () => Promise<McpServer[]>
-      listHooks: () => Promise<Record<string, HookEntry[]>>
+      listMcp:      () => Promise<McpServer[]>
+      installMcp:   (s: { name: string; command: string; args?: string[] }) => Promise<{ ok: boolean; error?: string }>
+      uninstallMcp: (name: string) => Promise<{ ok: boolean; error?: string }>
+      listHooks:    () => Promise<Record<string, HookEntry[]>>
 
       // Window
       pickFolder: () => Promise<string | null>

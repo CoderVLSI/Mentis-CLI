@@ -27,6 +27,7 @@ export interface Session {
   createdAt:    number
   updatedAt:    number
   messageCount: number
+  source?:      'cli' | 'desktop'
 }
 
 export type SyncMode = 'standalone' | 'desktop'

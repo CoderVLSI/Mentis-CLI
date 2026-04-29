@@ -5,7 +5,7 @@ interface Props {
   onSaved: () => void
 }
 
-type Tab = 'general' | 'providers' | 'sync' | 'channels' | 'about'
+type Tab = 'general' | 'providers' | 'sync' | 'channels' | 'marketplace' | 'about'
 
 const PROVIDERS = [
   {
@@ -131,7 +131,7 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
     setTgSaving(false)
   }
 
-  const NAV: [Tab, string][] = [['general', 'General'], ['providers', 'Providers'], ['sync', 'Sync'], ['channels', 'Channels'], ['about', 'About']]
+  const NAV: [Tab, string][] = [['general', 'General'], ['providers', 'Providers'], ['sync', 'Sync'], ['channels', 'Channels'], ['marketplace', 'Marketplace'], ['about', 'About']]
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm no-drag" onClick={onClose}>
@@ -429,6 +429,8 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
               </div>
             )}
 
+            {tab === 'marketplace' && <MarketplaceTab />}
+
             {tab === 'about' && (
               <div className="space-y-4">
                 <SectionTitle>About Mentis</SectionTitle>
@@ -484,5 +486,85 @@ function XIcon() {
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
     </svg>
+  )
+}
+
+// ── MCP Marketplace ───────────────────────────────────────────────────────────
+
+const CATALOG = [
+  { name: 'filesystem',  label: 'Filesystem',     desc: 'Read/write local files outside the CWD. Official Anthropic server.', command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '.'], tag: 'Official' },
+  { name: 'github',      label: 'GitHub',          desc: 'Search repos, read files, create issues and PRs via GitHub API.',      command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'],            tag: 'Official' },
+  { name: 'fetch',       label: 'Fetch / Browser', desc: 'Fetch any URL and return the page content as markdown.',              command: 'npx', args: ['-y', '@modelcontextprotocol/server-fetch'],             tag: 'Official' },
+  { name: 'memory',      label: 'Memory',          desc: 'Persistent knowledge graph — the agent remembers facts across sessions.', command: 'npx', args: ['-y', '@modelcontextprotocol/server-memory'],          tag: 'Official' },
+  { name: 'playwright',  label: 'Playwright',      desc: 'Control a real browser — navigate, screenshot, fill forms, scrape.',  command: 'npx', args: ['-y', '@executeautomation/playwright-mcp-server'],    tag: 'Community' },
+  { name: 'postgres',    label: 'PostgreSQL',       desc: 'Query a Postgres database with natural language.',                    command: 'npx', args: ['-y', '@modelcontextprotocol/server-postgres'],         tag: 'Official' },
+  { name: 'slack',       label: 'Slack',            desc: 'Read channels, post messages and search Slack workspaces.',          command: 'npx', args: ['-y', '@modelcontextprotocol/server-slack'],             tag: 'Official' },
+  { name: 'linear',      label: 'Linear',           desc: 'Create, update and search Linear issues from the agent.',            command: 'npx', args: ['-y', '@linear/linear-mcp-server'],                     tag: 'Community' },
+  { name: 'brave-search',label: 'Brave Search',     desc: 'Privacy-focused web search — alternative to Serper.',               command: 'npx', args: ['-y', '@modelcontextprotocol/server-brave-search'],    tag: 'Official' },
+  { name: 'puppeteer',   label: 'Puppeteer',        desc: 'Headless Chrome automation — scrape, screenshot, generate PDFs.',    command: 'npx', args: ['-y', '@modelcontextprotocol/server-puppeteer'],       tag: 'Official' },
+]
+
+function MarketplaceTab() {
+  const [installed, setInstalled] = useState<string[]>([])
+  const [busy, setBusy]           = useState<string | null>(null)
+  const [status, setStatus]       = useState<Record<string, 'ok' | 'err'>>({})
+
+  useEffect(() => {
+    window.mentis.listMcp().then(list => setInstalled(list.map(s => s.name)))
+  }, [])
+
+  const toggle = async (item: typeof CATALOG[0]) => {
+    setBusy(item.name)
+    try {
+      if (installed.includes(item.name)) {
+        await window.mentis.uninstallMcp(item.name)
+        setInstalled(prev => prev.filter(n => n !== item.name))
+        setStatus(prev => ({ ...prev, [item.name]: 'ok' }))
+      } else {
+        const res = await window.mentis.installMcp({ name: item.name, command: item.command, args: item.args })
+        if (res.ok) { setInstalled(prev => [...prev, item.name]); setStatus(prev => ({ ...prev, [item.name]: 'ok' })) }
+        else setStatus(prev => ({ ...prev, [item.name]: 'err' }))
+      }
+    } finally { setBusy(null) }
+  }
+
+  return (
+    <div className="space-y-3">
+      <SectionTitle>MCP Marketplace</SectionTitle>
+      <p className="text-[11px] text-muted leading-relaxed">
+        Install Model Context Protocol servers to give the agent new capabilities. Servers are saved to <code className="font-mono text-accent/70">~/.mentis/mcp.json</code>.
+      </p>
+      <div className="grid grid-cols-1 gap-2">
+        {CATALOG.map(item => {
+          const isInstalled = installed.includes(item.name)
+          const isBusy      = busy === item.name
+          const st          = status[item.name]
+          return (
+            <div key={item.name} className="flex items-start gap-3 p-3 rounded-xl bg-surface border border-border hover:border-accent/30 transition-colors">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="text-[12px] font-medium text-[#ddd]">{item.label}</span>
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-mono ${item.tag === 'Official' ? 'bg-accent/15 text-purple-300' : 'bg-white/5 text-muted'}`}>{item.tag}</span>
+                  {st === 'ok' && <span className="text-[9px] text-green-400">✓</span>}
+                  {st === 'err' && <span className="text-[9px] text-red-400">✗ error</span>}
+                </div>
+                <p className="text-[11px] text-muted leading-relaxed">{item.desc}</p>
+              </div>
+              <button
+                onClick={() => toggle(item)}
+                disabled={isBusy}
+                className={`shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-colors ${
+                  isInstalled
+                    ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20'
+                    : 'bg-accent/15 text-purple-300 hover:bg-accent/25 border border-accent/25'
+                } disabled:opacity-50`}
+              >
+                {isBusy ? '…' : isInstalled ? 'Remove' : 'Install'}
+              </button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
   )
 }

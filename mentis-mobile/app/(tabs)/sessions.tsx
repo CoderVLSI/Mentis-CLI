@@ -164,7 +164,14 @@ export default function SessionsScreen() {
             >
               <StatusIcon active={isActive} />
               <View style={{ flex: 1 }}>
-                <Text style={styles.cardTitle} numberOfLines={2}>{s.title}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[styles.cardTitle, { flex: 1 }]} numberOfLines={2}>{s.title}</Text>
+                  {s.source === 'cli' && (
+                    <View style={styles.cliBadge}>
+                      <Text style={styles.cliBadgeText}>CLI</Text>
+                    </View>
+                  )}
+                </View>
                 <Text style={styles.cardMeta}>
                   {s.messageCount} messages · {timeAgo(s.updatedAt)}
                 </Text>
@@ -293,6 +300,8 @@ const styles = StyleSheet.create({
   card:             { flexDirection: 'row', alignItems: 'flex-start', gap: 12, backgroundColor: C.panel, borderRadius: 16, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: C.border },
   cardTitle:        { fontSize: 14, fontWeight: '500', color: C.text, lineHeight: 20, flex: 1 },
   cardMeta:         { fontSize: 11, color: C.muted, marginTop: 4 },
+  cliBadge:         { backgroundColor: 'rgba(34,197,94,0.15)', borderColor: 'rgba(34,197,94,0.35)', borderWidth: 1, borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1 },
+  cliBadgeText:     { fontSize: 9, color: '#22c55e', fontFamily: 'monospace', fontWeight: '600' },
   statusIcon:       { width: 32, height: 32, borderRadius: 16, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
   statusActive:     { borderColor: C.accentL, backgroundColor: C.accent + '18' },
   statusDone:       { borderColor: C.border2, borderStyle: 'dashed', backgroundColor: 'transparent' },
