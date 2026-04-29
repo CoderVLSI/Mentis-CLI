@@ -94,6 +94,7 @@ const ALL_COMMANDS = [
     { value: '/skills',   name: '/skills       Manage agent skills' },
     { value: '/commands', name: '/commands     Manage custom slash commands' },
     { value: '/status',   name: '/status       Show session status' },
+    { value: '/telegram', name: '/telegram     Configure and manage the Telegram bot channel' },
     { value: '/exit',     name: '/exit         Save session & exit' },
 ];
 
