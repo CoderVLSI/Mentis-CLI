@@ -133,11 +133,31 @@ function buildClient(): ModelClient {
     return new AnthropicClient(apiKey, model)
   }
 
-  const rawBase = config.ollama?.baseUrl || 'http://localhost:11434/v1'
-  const base    = rawBase.replace(/\/$/, '').endsWith('/v1') ? rawBase.replace(/\/$/, '') : `${rawBase.replace(/\/$/, '')}/v1`
-  const apiKey  = config.openai?.apiKey  || 'ollama'
-  const model   = config.openai?.model   || config.ollama?.model || 'llama3'
-  return new OpenAIClient(base, apiKey, model)
+  let baseUrl: string
+  let apiKey:  string
+  let model:   string
+
+  if (provider === 'gemini') {
+    baseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/'
+    apiKey  = config.gemini?.apiKey || ''
+    model   = config.gemini?.model  || 'gemini-2.5-flash'
+  } else if (provider === 'openai') {
+    baseUrl = config.openai?.baseUrl || 'https://api.openai.com/v1'
+    apiKey  = config.openai?.apiKey  || ''
+    model   = config.openai?.model   || 'gpt-4o'
+  } else if (provider === 'glm') {
+    baseUrl = config.glm?.baseUrl || 'https://api.z.ai/api/coding/paas/v4/'
+    apiKey  = config.glm?.apiKey  || ''
+    model   = config.glm?.model   || 'glm-4.6'
+  } else {
+    // ollama / default
+    const rawBase = config.ollama?.baseUrl || 'http://localhost:11434/v1'
+    baseUrl = rawBase.replace(/\/$/, '').endsWith('/v1') ? rawBase.replace(/\/$/, '') : `${rawBase.replace(/\/$/, '')}/v1`
+    apiKey  = 'ollama'
+    model   = config.ollama?.model || 'llama3'
+  }
+
+  return new OpenAIClient(baseUrl, apiKey, model)
 }
 
 // ── Build tool set ────────────────────────────────────────────────────────────
