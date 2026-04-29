@@ -56,7 +56,8 @@ import { renderBanner, renderCard, renderInteraction } from '../sidekick/Sidekic
 import { MemoryManager } from '../memory/MemoryManager';
 import { startCliTelegramChannel, stopCliTelegramChannel, isCliTelegramRunning, getCliBotUsername, broadcastToActiveTelegramChats } from '../telegram/TelegramChannel'
 import { Scheduler, loadTasks, saveTasks, parseInterval, ScheduledTask } from '../scheduler/Scheduler'
-import { WebhookServer, loadWebhookConfig, saveWebhookConfig } from '../webhook/WebhookServer';
+import { WebhookServer, loadWebhookConfig, saveWebhookConfig } from '../webhook/WebhookServer'
+import { ScheduleTaskTool } from '../tools/ScheduleTaskTool';
 
 const HISTORY_FILE     = path.join(os.homedir(), '.mentis_history');
 const GLOBAL_SESS_DIR  = path.join(os.homedir(), '.mentis', 'sessions');
@@ -206,6 +207,7 @@ export class ReplManager {
             new TodoWriteTool(),
             new TodoReadTool(),
             new WebFetchTool(),
+            new ScheduleTaskTool(),
         ];
 
         // Configure Markdown Renderer with syntax highlighting and terminal width

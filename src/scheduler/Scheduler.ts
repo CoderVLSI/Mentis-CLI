@@ -23,6 +23,7 @@ export interface ScheduledTask {
   nextRun:      number   // epoch ms
   enabled:      boolean
   createdAt:    number
+  oneShot?:     boolean  // if true, disable after first fire (reminders)
 }
 
 export function parseInterval(s: string): number | null {
@@ -31,6 +32,24 @@ export function parseInterval(s: string): number | null {
   const n = parseFloat(m[1])
   const unit: Record<string, number> = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }
   return Math.round(n * unit[m[2]])
+}
+
+/**
+ * Parse natural language time expressions into a canonical interval string.
+ * e.g. "2 minutes" → "2m", "1 hour" → "1h", "30 seconds" → "30s"
+ * Returns null if no match.
+ */
+export function parseNaturalInterval(text: string): string | null {
+  const m = text.match(/(\d+(?:\.\d+)?)\s*(second|sec|minute|min|hour|hr|day|week|s|m|h|d)s?/i)
+  if (!m) return null
+  const n    = m[1]
+  const unit = m[2].toLowerCase()
+  if (unit === 'second' || unit === 'sec' || unit === 's') return `${n}s`
+  if (unit === 'minute' || unit === 'min' || unit === 'm') return `${n}m`
+  if (unit === 'hour'   || unit === 'hr'  || unit === 'h') return `${n}h`
+  if (unit === 'day'    || unit === 'd')                   return `${n}d`
+  if (unit === 'week')                                     return `${Math.round(parseFloat(n) * 7)}d`
+  return null
 }
 
 export function loadTasks(): ScheduledTask[] {
@@ -69,6 +88,7 @@ export class Scheduler {
       if (!task.enabled || task.nextRun > now) continue
       task.lastRun = now
       task.nextRun = now + task.intervalMs
+      if (task.oneShot) task.enabled = false  // fire once then disable
       changed = true
       try { await this.onFire(task) } catch {}
     }

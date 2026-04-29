@@ -29,7 +29,7 @@ import { PersistentShell } from '../repl/PersistentShell'
 import { PersistentShellTool } from '../tools/PersistentShellTool'
 import { GitStatusTool, GitDiffTool } from '../tools/GitTools'
 import { Tool } from '../tools/Tool'
-import { loadTasks, saveTasks, parseInterval, ScheduledTask } from '../scheduler/Scheduler'
+import { loadTasks, saveTasks, parseInterval, parseNaturalInterval, ScheduledTask } from '../scheduler/Scheduler'
 
 const TG = 'https://api.telegram.org'
 const SYSTEM_PROMPT = `You are Mentis, an expert AI coding agent. Working directory: ${process.cwd()}.
@@ -249,6 +249,54 @@ async function handleMessage(
 
   const parts = msg.text.trim().split(/\s+/)
   const cmd   = parts[0].replace(`@${_username}`, '').toLowerCase()
+
+  // ── Natural language scheduling ───────────────────────────────────────────────
+  // Patterns: "remind me in 2 mins to X", "remind me in X to Y", "set a reminder in X to Y"
+  // Also: "every 1h X", "every hour X" for recurring tasks
+  const reminderMatch = msg.text.match(
+    /^(?:remind\s+me|set\s+a?\s*reminder)\s+in\s+(.+?)\s+to\s+(.+)$/i
+  )
+  const recurringMatch = msg.text.match(
+    /^every\s+(.+?)\s+(?:to\s+|:?\s*)(.+)$/i
+  )
+
+  if (reminderMatch || recurringMatch) {
+    stopped = true; clearInterval(typing); _busy.delete(chatId)
+    const isReminder = !!reminderMatch
+    const rawInterval = isReminder ? reminderMatch![1] : recurringMatch![1]
+    const prompt      = isReminder ? reminderMatch![2].trim() : recurringMatch![2].trim()
+    const interval    = parseNaturalInterval(rawInterval)
+
+    if (!interval) {
+      await sendMessage(token, chatId, `⚠ Couldn't parse time from: _"${rawInterval}"_\nTry: "2 minutes", "1 hour", "30 seconds"`)
+      return
+    }
+
+    const ms  = parseInterval(interval)!
+    const now = Date.now()
+    const task: ScheduledTask = {
+      id:         now.toString(36),
+      prompt,
+      interval,
+      intervalMs: ms,
+      lastRun:    0,
+      nextRun:    now + ms,
+      enabled:    true,
+      createdAt:  now,
+      oneShot:    isReminder,
+    }
+    const all = loadTasks()
+    all.push(task)
+    saveTasks(all)
+
+    const when = new Date(task.nextRun).toLocaleTimeString()
+    if (isReminder) {
+      await sendMessage(token, chatId, `⏰ Reminder set for *${when}* (in ${interval})\n_${prompt}_`, msg.messageId)
+    } else {
+      await sendMessage(token, chatId, `🔁 Recurring task every *${interval}*, starting ${when}\n_${prompt}_\nID: \`${task.id}\``, msg.messageId)
+    }
+    return
+  }
 
   // ── /schedule command ────────────────────────────────────────────────────────
   if (cmd === '/schedule') {
