@@ -54,7 +54,7 @@ import { AnthropicClient } from '../llm/AnthropicClient';
 import { SidekickManager } from '../sidekick/SidekickManager';
 import { renderBanner, renderCard, renderInteraction } from '../sidekick/SidekickDisplay';
 import { MemoryManager } from '../memory/MemoryManager';
-import { startCliTelegramChannel, stopCliTelegramChannel, isCliTelegramRunning, getCliBotUsername } from '../telegram/TelegramChannel'
+import { startCliTelegramChannel, stopCliTelegramChannel, isCliTelegramRunning, getCliBotUsername, broadcastToActiveTelegramChats } from '../telegram/TelegramChannel'
 import { Scheduler, loadTasks, saveTasks, parseInterval, ScheduledTask } from '../scheduler/Scheduler'
 import { WebhookServer, loadWebhookConfig, saveWebhookConfig } from '../webhook/WebhookServer';
 
@@ -165,6 +165,14 @@ export class ReplManager {
         this.memoryManager = new MemoryManager();
         this.scheduler = new Scheduler(async (task) => {
             await this.handleChat(task.prompt)
+            // Forward result to Telegram if bot is connected
+            if (isCliTelegramRunning()) {
+                const last = this.history[this.history.length - 1]
+                const text = last?.role === 'assistant' && typeof last.content === 'string' ? last.content : ''
+                if (text) {
+                    await broadcastToActiveTelegramChats(`⏰ *Scheduled:* \`${task.prompt}\`\n\n${text}`)
+                }
+            }
         })
         this.webhookServer = new WebhookServer(async (prompt, source) => {
             process.stdout.write(`\n${chalk.cyan(`[Webhook ${source}]`)} ${prompt}\n`)

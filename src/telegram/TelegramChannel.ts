@@ -29,6 +29,7 @@ import { PersistentShell } from '../repl/PersistentShell'
 import { PersistentShellTool } from '../tools/PersistentShellTool'
 import { GitStatusTool, GitDiffTool } from '../tools/GitTools'
 import { Tool } from '../tools/Tool'
+import { loadTasks, saveTasks, parseInterval, ScheduledTask } from '../scheduler/Scheduler'
 
 const TG = 'https://api.telegram.org'
 const SYSTEM_PROMPT = `You are Mentis, an expert AI coding agent. Working directory: ${process.cwd()}.
@@ -39,6 +40,13 @@ const BOT_HELP = `🤖 *Mentis Bot Commands*
 /help  — show this message
 /reset — start a fresh conversation
 /clear — same as /reset
+
+*Scheduled tasks (cron):*
+/schedule — list all tasks
+/schedule add 1h your prompt here — add task
+/schedule del <id> — delete task
+/schedule on <id>  — enable task
+/schedule off <id> — disable task
 
 Just send a message to chat with the agent.
 Send a photo to include an image in your message.`
@@ -93,10 +101,22 @@ function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)) }
 let _running  = false
 let _stop     = false
 let _username = ''
+let _token    = ''
 
 export function stopCliTelegramChannel()    { _stop = true }
 export function isCliTelegramRunning()      { return _running }
 export function getCliBotUsername()         { return _username }
+
+// Track chat IDs that have interacted — scheduled results go here
+const _activeChatIds = new Set<number>()
+
+/** Send a message to every chat that has talked to the bot this session */
+export async function broadcastToActiveTelegramChats(text: string): Promise<void> {
+  if (!_token || _activeChatIds.size === 0) return
+  for (const chatId of _activeChatIds) {
+    await sendMessage(_token, chatId, text).catch(() => {})
+  }
+}
 
 // Per-chat conversation histories
 const chatHistories = new Map<number, ChatMessage[]>()
@@ -227,7 +247,86 @@ async function handleMessage(
   if (!chatHistories.has(chatId)) chatHistories.set(chatId, [])
   const history = chatHistories.get(chatId)!
 
-  const cmd = msg.text.trim().split(' ')[0].replace(`@${_username}`, '').toLowerCase()
+  const parts = msg.text.trim().split(/\s+/)
+  const cmd   = parts[0].replace(`@${_username}`, '').toLowerCase()
+
+  // ── /schedule command ────────────────────────────────────────────────────────
+  if (cmd === '/schedule') {
+    stopped = true; clearInterval(typing); _busy.delete(chatId)
+    const sub = parts[1]?.toLowerCase()
+
+    if (!sub || sub === 'list') {
+      const tasks = loadTasks()
+      if (tasks.length === 0) {
+        await sendMessage(token, chatId, '📋 No scheduled tasks. Add one with:\n`/schedule add 1h your prompt`')
+      } else {
+        const lines = tasks.map(t => {
+          const st  = t.enabled ? '✅' : '⏸'
+          const nxt = t.enabled ? `next: ${new Date(t.nextRun).toLocaleString()}` : 'disabled'
+          return `${st} \`${t.id}\` every *${t.interval}* — ${nxt}\n   _${t.prompt.slice(0, 60)}${t.prompt.length > 60 ? '…' : ''}_`
+        })
+        await sendMessage(token, chatId, `📋 *Scheduled Tasks*\n\n${lines.join('\n\n')}`)
+      }
+      return
+    }
+
+    if (sub === 'add') {
+      // /schedule add <interval> <prompt…>
+      const interval = parts[2]
+      const prompt   = parts.slice(3).join(' ').trim()
+      if (!interval || !prompt) {
+        await sendMessage(token, chatId, '⚠ Usage: `/schedule add 1h your prompt here`')
+        return
+      }
+      const ms = parseInterval(interval)
+      if (!ms) {
+        await sendMessage(token, chatId, '⚠ Invalid interval. Use: `30s`, `5m`, `2h`, `1d`')
+        return
+      }
+      const now  = Date.now()
+      const task: ScheduledTask = {
+        id:         Date.now().toString(36),
+        prompt,
+        interval,
+        intervalMs: ms,
+        lastRun:    0,
+        nextRun:    now + ms,
+        enabled:    true,
+        createdAt:  now,
+      }
+      const all = loadTasks()
+      all.push(task)
+      saveTasks(all)
+      await sendMessage(token, chatId, `✅ Task \`${task.id}\` added — runs every *${interval}*\nFirst run: ${new Date(task.nextRun).toLocaleString()}`)
+      return
+    }
+
+    if (sub === 'del' || sub === 'delete') {
+      const id  = parts[2]
+      if (!id) { await sendMessage(token, chatId, '⚠ Usage: `/schedule del <id>`'); return }
+      const all = loadTasks()
+      if (!all.find(t => t.id === id)) { await sendMessage(token, chatId, `⚠ Task \`${id}\` not found.`); return }
+      saveTasks(all.filter(t => t.id !== id))
+      await sendMessage(token, chatId, `🗑 Task \`${id}\` deleted.`)
+      return
+    }
+
+    if (sub === 'on' || sub === 'off') {
+      const id  = parts[2]
+      if (!id) { await sendMessage(token, chatId, `⚠ Usage: \`/schedule ${sub} <id>\``); return }
+      const all  = loadTasks()
+      const task = all.find(t => t.id === id)
+      if (!task) { await sendMessage(token, chatId, `⚠ Task \`${id}\` not found.`); return }
+      task.enabled = sub === 'on'
+      if (task.enabled) task.nextRun = Date.now() + task.intervalMs
+      saveTasks(all)
+      await sendMessage(token, chatId, task.enabled ? `✅ Task \`${id}\` enabled.` : `⏸ Task \`${id}\` disabled.`)
+      return
+    }
+
+    await sendMessage(token, chatId, '⚠ Unknown sub-command. Try `/schedule`, `/schedule add`, `/schedule del`, `/schedule on/off`')
+    return
+  }
 
   // Bot commands
   if (cmd === '/clear' || cmd === '/reset') {
@@ -273,6 +372,8 @@ export async function startCliTelegramChannel(
   _stop     = false
   _running  = false
   _username = ''
+  _token    = token
+  _activeChatIds.clear()
 
   const me = await tgCall(token, 'getMe')
   if (!me.ok) { console.error('[telegram] Invalid bot token'); return }
@@ -318,6 +419,7 @@ export async function startCliTelegramChannel(
 
         const chatId  = m.chat.id
         const isGroup = m.chat.type === 'group' || m.chat.type === 'supergroup'
+        _activeChatIds.add(chatId)
 
         // In groups, only respond when mentioned or replied to
         if (isGroup) {
