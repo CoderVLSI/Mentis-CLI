@@ -1,11 +1,8 @@
 /**
  * Telegram channel — long-polls the Telegram Bot API and bridges messages
- * to the Mentis engine. The agent's response is sent back to the user.
- *
- * Setup:
- *   1. Create a bot via @BotFather and copy the token.
- *   2. Paste it in Settings → Channels.
- *   3. Message your bot; it will respond using the active AI provider.
+ * to the Mentis engine. Fully bidirectional:
+ *   Telegram → Desktop: onUserMessage callback adds message to desktop feed
+ *   Desktop  → Telegram: engine responses forwarded to all active Telegram chats
  */
 
 import axios from 'axios'
@@ -44,6 +41,12 @@ let _running  = false
 let _stop     = false
 let _username = ''
 
+// Tracks chatIds that have ever sent a message — desktop replies are forwarded here
+const _activeChatIds = new Set<number>()
+
+// True while engine is processing a Telegram-originated message (avoids double-send)
+let _processingTelegram = false
+
 export function stopTelegramChannel()      { _stop = true }
 export function isTelegramRunning()        { return _running }
 export function getTelegramBotUsername()   { return _username }
@@ -61,12 +64,37 @@ export async function startTelegramChannel(
   _stop     = false
   _running  = false
   _username = ''
+  _activeChatIds.clear()
 
   // Verify the token and get bot info
   const me = await tgCall(token, 'getMe')
   if (!me.ok) throw new Error('Invalid bot token — check Settings → Channels')
   _username = ((me.result as Record<string, unknown>)?.username as string) || ''
   _running  = true
+
+  // ── Desktop → Telegram forwarding ─────────────────────────────────────────
+  // When the desktop user sends a message, forward the agent's response to
+  // all active Telegram chats (those that have previously sent a message).
+
+  let _pendingResponse = ''
+
+  const onChunkForward  = (d: { text: string })    => { _pendingResponse += d.text }
+  const onStartForward  = ()                        => { _pendingResponse = '' }
+  const onSessionUpdate = () => {
+    if (!_processingTelegram && _pendingResponse.trim() && _activeChatIds.size > 0) {
+      const text = _pendingResponse.trim()
+      _pendingResponse = ''
+      for (const chatId of _activeChatIds) {
+        sendMessage(token, chatId, text).catch(() => {})
+      }
+    } else {
+      _pendingResponse = ''
+    }
+  }
+
+  engine.on('message_start',  onStartForward)
+  engine.on('message_chunk',  onChunkForward)
+  engine.on('session_update', onSessionUpdate)
 
   let offset = 0
 
@@ -109,6 +137,9 @@ export async function startTelegramChannel(
           continue
         }
 
+        // Register this chat as active so desktop replies get forwarded here
+        _activeChatIds.add(chatId)
+
         // Notify desktop UI so the message appears in the chat feed
         const fromName = msg.from.username ? `@${msg.from.username}` : msg.from.first_name
         onUserMessage?.(msg.text, fromName)
@@ -120,6 +151,11 @@ export async function startTelegramChannel(
       if (!_stop) await sleep(5000)
     }
   }
+
+  // Clean up engine listeners
+  engine.off('message_start',  onStartForward)
+  engine.off('message_chunk',  onChunkForward)
+  engine.off('session_update', onSessionUpdate)
 
   _running = false
 }
@@ -133,7 +169,8 @@ async function handleMessage(
   text:        string,
   autoApprove: boolean
 ): Promise<void> {
-  // Show typing indicator every 4 s while the agent thinks
+  _processingTelegram = true
+
   let stopped = false
   const typing = setInterval(() => {
     if (!stopped) tgCall(token, 'sendChatAction', { chat_id: chatId, action: 'typing' })
@@ -151,11 +188,7 @@ async function handleMessage(
 
   try {
     await new Promise<void>((resolve) => {
-      // session_update fires exactly once at the very end of engine.chat()
-      const onDone = () => {
-        engine.off('session_update', onDone)
-        resolve()
-      }
+      const onDone = () => { engine.off('session_update', onDone); resolve() }
       engine.on('session_update', onDone)
       engine.chat(text)
     })
@@ -165,6 +198,7 @@ async function handleMessage(
     engine.off('message_chunk',   onChunk)
     engine.off('approval_needed', onApproval)
     engine.off('error',           onError)
+    _processingTelegram = false
   }
 
   await sendMessage(token, chatId, response.trim() || '✓ Done')
