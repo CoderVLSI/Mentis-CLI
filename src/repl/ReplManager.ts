@@ -1182,6 +1182,7 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
     }
 
     private async handleTelegramCommand() {
+        this.configManager.reloadConfig()
         const cfg    = this.configManager.getConfig()
         const tg     = cfg.telegram || {}
         const running = isCliTelegramRunning()

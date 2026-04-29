@@ -78,6 +78,10 @@ export class ConfigManager {
         return this.config;
     }
 
+    public reloadConfig() {
+        this.loadConfig();
+    }
+
     public updateConfig(newConfig: Partial<MentisConfig>) {
         this.config = { ...this.config, ...newConfig };
         this.saveConfig();
