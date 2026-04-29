@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import type { Persona } from '../types'
 
 interface Props {
   onClose: () => void
   onSaved: () => void
 }
 
-type Tab = 'general' | 'providers' | 'sync' | 'channels' | 'marketplace' | 'about'
+type Tab = 'general' | 'providers' | 'sync' | 'channels' | 'personas' | 'marketplace' | 'about'
 
 const PROVIDERS = [
   {
@@ -131,7 +132,7 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
     setTgSaving(false)
   }
 
-  const NAV: [Tab, string][] = [['general', 'General'], ['providers', 'Providers'], ['sync', 'Sync'], ['channels', 'Channels'], ['marketplace', 'Marketplace'], ['about', 'About']]
+  const NAV: [Tab, string][] = [['general', 'General'], ['providers', 'Providers'], ['sync', 'Sync'], ['channels', 'Channels'], ['personas', 'Personas'], ['marketplace', 'Marketplace'], ['about', 'About']]
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm no-drag" onClick={onClose}>
@@ -429,6 +430,7 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
               </div>
             )}
 
+            {tab === 'personas'    && <PersonasTab />}
             {tab === 'marketplace' && <MarketplaceTab />}
 
             {tab === 'about' && (
@@ -486,6 +488,116 @@ function XIcon() {
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
     </svg>
+  )
+}
+
+// ── Agent Personas ────────────────────────────────────────────────────────────
+
+const DEFAULT_PERSONAS: Persona[] = [
+  { id: 'default',  name: 'Default',       prompt: '',                                                                                     createdAt: 0 },
+  { id: 'concise',  name: 'Concise',       prompt: 'Be extremely concise. Prefer bullet points. No unnecessary explanation.',              createdAt: 0 },
+  { id: 'teacher',  name: 'Teacher',       prompt: 'Explain every decision as if teaching a junior developer. Be thorough and educational.', createdAt: 0 },
+  { id: 'security', name: 'Security',      prompt: 'Always think about security implications first. Flag any potential vulnerabilities.',   createdAt: 0 },
+  { id: 'rubber',   name: 'Rubber Duck',   prompt: 'Do not write code. Only ask clarifying questions and help me think through the problem.', createdAt: 0 },
+]
+
+function PersonasTab() {
+  const [personas, setPersonas]   = useState<Persona[]>([])
+  const [active, setActive]       = useState('')
+  const [editing, setEditing]     = useState<Persona | null>(null)
+  const [newName, setNewName]     = useState('')
+  const [newPrompt, setNewPrompt] = useState('')
+  const [saved, setSaved]         = useState(false)
+  const nameRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    window.mentis.listPersonas().then(list => setPersonas(list.length ? list : DEFAULT_PERSONAS))
+    window.mentis.activePersona().then(setActive)
+  }, [])
+
+  const apply = async (p: Persona) => {
+    await window.mentis.applyPersona(p.prompt)
+    setActive(p.id)
+    setSaved(true); setTimeout(() => setSaved(false), 1500)
+  }
+
+  const save = async (updated: Persona[]) => {
+    setPersonas(updated)
+    await window.mentis.savePersonas(updated)
+  }
+
+  const startCreate = () => {
+    setEditing({ id: crypto.randomUUID(), name: '', prompt: '', createdAt: Date.now() })
+    setNewName(''); setNewPrompt('')
+    setTimeout(() => nameRef.current?.focus(), 50)
+  }
+
+  const confirmCreate = async () => {
+    if (!newName.trim()) return
+    const p: Persona = { id: crypto.randomUUID(), name: newName.trim(), prompt: newPrompt.trim(), createdAt: Date.now() }
+    await save([...personas, p])
+    setEditing(null)
+  }
+
+  const del = async (id: string) => {
+    const updated = personas.filter(p => p.id !== id)
+    await save(updated)
+    if (active === id) { await window.mentis.applyPersona(''); setActive('') }
+  }
+
+  return (
+    <div className="space-y-3">
+      <SectionTitle>Agent Personas</SectionTitle>
+      <p className="text-[11px] text-muted leading-relaxed">
+        Personas inject a custom system prompt that shapes how the agent behaves.
+        {saved && <span className="ml-2 text-green-400">✓ Applied</span>}
+      </p>
+      <div className="space-y-1.5">
+        {personas.map(p => (
+          <div key={p.id} className={`flex items-start gap-2.5 p-2.5 rounded-xl border transition-colors cursor-pointer ${
+            active === p.id ? 'bg-accent/10 border-accent/40' : 'bg-surface border-border hover:border-accent/20'
+          }`} onClick={() => apply(p)}>
+            <div className={`w-2 h-2 rounded-full shrink-0 mt-1.5 ${active === p.id ? 'bg-accent' : 'bg-muted/30'}`} />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-[12px] font-medium text-[#ddd]">{p.name}</span>
+                {active === p.id && <span className="text-[9px] text-accent font-mono">ACTIVE</span>}
+              </div>
+              {p.prompt ? (
+                <p className="text-[11px] text-muted mt-0.5 truncate">{p.prompt}</p>
+              ) : (
+                <p className="text-[11px] text-muted/40 mt-0.5 italic">No custom prompt — standard Mentis behaviour</p>
+              )}
+            </div>
+            {p.createdAt > 0 && (
+              <button onClick={e => { e.stopPropagation(); del(p.id) }}
+                className="shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-red-500/20 text-muted/40 hover:text-red-400 transition-colors text-[10px]">✕</button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {editing ? (
+        <div className="p-3 rounded-xl border border-accent/30 bg-accent/5 space-y-2">
+          <input ref={nameRef} value={newName} onChange={e => setNewName(e.target.value)}
+            placeholder="Persona name…"
+            className="w-full bg-transparent text-[12px] text-[#ddd] placeholder-muted/40 outline-none border-b border-border pb-1" />
+          <textarea value={newPrompt} onChange={e => setNewPrompt(e.target.value)}
+            placeholder="System prompt (leave blank to inherit default)…"
+            rows={3}
+            className="w-full bg-transparent text-[11px] text-[#ccc] placeholder-muted/40 outline-none resize-none" />
+          <div className="flex gap-2">
+            <button onClick={confirmCreate} className="px-3 py-1 rounded-lg text-[11px] bg-accent/20 text-purple-300 hover:bg-accent/30 transition-colors">Save</button>
+            <button onClick={() => setEditing(null)} className="px-3 py-1 rounded-lg text-[11px] text-muted hover:text-[#ccc] transition-colors">Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={startCreate}
+          className="w-full py-2 rounded-xl border border-dashed border-border text-[11px] text-muted hover:text-[#ccc] hover:border-accent/30 transition-colors">
+          + Create persona
+        </button>
+      )}
+    </div>
   )
 }
 

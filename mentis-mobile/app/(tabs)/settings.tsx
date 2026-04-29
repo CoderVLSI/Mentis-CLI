@@ -4,14 +4,15 @@ import {
   ScrollView, StyleSheet, Switch, Text, TextInput,
   TouchableOpacity, View,
 } from 'react-native'
-import { useSettings, Provider } from '../../store'
+import { useSettings, useTheme, Provider } from '../../store'
 import { checkHealth } from '../../services/mentisClient'
 import { verifyToken, listRepos, GithubRepo } from '../../services/githubClient'
 import { PROVIDERS, DEFAULT_MODEL } from '../../services/providersConfig'
 import { C } from '../../constants/theme'
 
 export default function SettingsScreen() {
-  const settings = useSettings()
+  const settings  = useSettings()
+  const { isDark, toggle: toggleTheme } = useTheme()
   const [testing, setTesting]         = useState(false)
   const [testResult, setTestResult]   = useState<boolean | null>(null)
   const [ghVerifying, setGhVerifying] = useState(false)
@@ -73,6 +74,18 @@ export default function SettingsScreen() {
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+
+          {/* Theme toggle */}
+          <Section title="Appearance">
+            <Row label="Dark Mode" hint={isDark ? 'Switch to light theme' : 'Switch to dark theme'}>
+              <Switch
+                value={isDark}
+                onValueChange={toggleTheme}
+                trackColor={{ false: C.border2, true: C.accent + '88' }}
+                thumbColor={isDark ? C.accent : C.muted}
+              />
+            </Row>
+          </Section>
 
           {/* Sync mode toggle */}
           <Section title="Sync Mode">

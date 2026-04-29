@@ -65,6 +65,7 @@ const MENTIS_MD_PATH   = path.join(os.homedir(), '.mentis', 'MENTIS.md')
 const LEGACY_HIST      = path.join(os.homedir(), '.mentis', 'desktop-history.json')
 const SESSIONS_INDEX   = path.join(os.homedir(), '.mentis', 'sessions.json')
 const SESSIONS_DIR     = path.join(os.homedir(), '.mentis', 'sessions')
+const PERSONAS_PATH    = path.join(os.homedir(), '.mentis', 'personas.json')
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -75,6 +76,24 @@ export function loadConfig(): Record<string, unknown> {
 
 export function saveConfig(cfg: Record<string, unknown>): void {
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2))
+}
+
+// ── Persona storage ───────────────────────────────────────────────────────────
+
+export interface Persona {
+  id:         string
+  name:       string
+  prompt:     string
+  createdAt:  number
+}
+
+export function listPersonas(): Persona[] {
+  try { return JSON.parse(fs.readFileSync(PERSONAS_PATH, 'utf-8')) } catch { return [] }
+}
+
+export function savePersonas(personas: Persona[]): void {
+  fs.ensureDirSync(path.dirname(PERSONAS_PATH))
+  fs.writeFileSync(PERSONAS_PATH, JSON.stringify(personas, null, 2))
 }
 
 // ── Session storage ───────────────────────────────────────────────────────────
@@ -277,6 +296,7 @@ export class HeadlessEngine extends EventEmitter {
   private pendingApprovals = new Map<string, (approved: boolean) => void>()
   private currentSessionId = ''
   private _chatting = false
+  private activePersonaPrompt = ''
 
   isChatting(): boolean { return this._chatting }
 
@@ -354,6 +374,8 @@ export class HeadlessEngine extends EventEmitter {
   getMode()     { return this.mode }
   getCwd()      { return this.cwd }
   setCwd(p: string)              { this.cwd = p }
+  setPersona(prompt: string)     { this.activePersonaPrompt = prompt }
+  getPersona()                   { return this.activePersonaPrompt }
   setMode(m: 'PLAN' | 'BUILD')  { this.mode = m }
   getActiveProvider()            { return (loadConfig().defaultProvider as string) || 'ollama' }
 
@@ -436,6 +458,7 @@ export class HeadlessEngine extends EventEmitter {
 
     let globalInstructions = ''
     try { if (fs.existsSync(MENTIS_MD_PATH)) globalInstructions = `\n\n# User Instructions\n${fs.readFileSync(MENTIS_MD_PATH, 'utf-8')}` } catch {}
+    if (this.activePersonaPrompt) globalInstructions += `\n\n# Persona\n${this.activePersonaPrompt}`
 
     const systemPrompt = this.mode === 'PLAN'
       ? `You are Mentis, an expert AI coding agent in PLAN MODE. Working directory: ${this.cwd}.

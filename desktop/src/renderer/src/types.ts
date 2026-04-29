@@ -60,6 +60,13 @@ export interface HookEntry {
   blocking?: boolean
 }
 
+export interface Persona {
+  id:        string
+  name:      string
+  prompt:    string
+  createdAt: number
+}
+
 // Webview element interface for in-app browser
 export interface WebviewElement extends HTMLElement {
   src: string
@@ -107,6 +114,12 @@ declare global {
 
       // Models
       listModels: () => Promise<string[]>
+
+      // Personas
+      listPersonas:  () => Promise<Persona[]>
+      savePersonas:  (p: Persona[]) => Promise<{ ok: boolean }>
+      applyPersona:  (prompt: string) => Promise<{ ok: boolean }>
+      activePersona: () => Promise<string>
 
       // MCP + Hooks
       listMcp:      () => Promise<McpServer[]>

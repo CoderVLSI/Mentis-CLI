@@ -1,6 +1,24 @@
 import { create } from 'zustand'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as SecureStore from 'expo-secure-store'
+import { DARK, LIGHT } from '../constants/theme'
+
+// ── Theme store ───────────────────────────────────────────────────────────────
+
+interface ThemeState {
+  isDark:    boolean
+  colors:    typeof DARK
+  toggle:    () => void
+}
+
+export const useTheme = create<ThemeState>((set) => ({
+  isDark:  true,
+  colors:  DARK,
+  toggle:  () => set(s => {
+    const isDark = !s.isDark
+    return { isDark, colors: isDark ? DARK : LIGHT }
+  }),
+}))
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

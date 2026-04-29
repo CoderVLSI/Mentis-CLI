@@ -331,13 +331,20 @@ export default function App() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === '`' && !e.shiftKey && !e.altKey) { e.preventDefault(); toggleTerminal() }
-      if (e.ctrlKey && e.key === '`' &&  e.shiftKey && !e.altKey) { e.preventDefault(); toggleBrowser() }
-      if (e.ctrlKey && e.key === '`' &&  e.altKey)                { e.preventDefault(); toggleFiles() }
+      const mod = e.ctrlKey || e.metaKey
+      // Panel toggles
+      if (mod && e.key === '`' && !e.shiftKey && !e.altKey) { e.preventDefault(); toggleTerminal() }
+      if (mod && e.key === '`' &&  e.shiftKey && !e.altKey) { e.preventDefault(); toggleBrowser() }
+      if (mod && e.key === '`' &&  e.altKey)                { e.preventDefault(); toggleFiles() }
+      // Chat actions
+      if (mod && e.key === 'n') { e.preventDefault(); newChat() }
+      if (mod && e.key === 'l') { e.preventDefault(); clearChat() }
+      if (mod && e.key === ',') { e.preventDefault(); setSettingsOpen(true) }
+      if (mod && e.key === 'k') { e.preventDefault(); clearChat() }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [toggleTerminal, toggleBrowser, toggleFiles])
+  }, [toggleTerminal, toggleBrowser, toggleFiles, newChat, clearChat])
 
   const onSettingsSaved = useCallback(async () => {
     const cfg  = await window.mentis.getConfig()

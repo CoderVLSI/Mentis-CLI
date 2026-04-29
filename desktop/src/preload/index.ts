@@ -33,6 +33,12 @@ contextBridge.exposeInMainWorld('mentis', {
   // Models
   listModels: () => ipcRenderer.invoke('models:list'),
 
+  // Personas
+  listPersonas:   () => ipcRenderer.invoke('personas:list'),
+  savePersonas:   (p: unknown[]) => ipcRenderer.invoke('personas:save', p),
+  applyPersona:   (prompt: string) => ipcRenderer.invoke('personas:apply', prompt),
+  activePersona:  () => ipcRenderer.invoke('personas:active'),
+
   // MCP + Hooks
   listMcp:      () => ipcRenderer.invoke('mcp:list'),
   installMcp:   (s: { name: string; command: string; args?: string[] }) => ipcRenderer.invoke('mcp:install', s),

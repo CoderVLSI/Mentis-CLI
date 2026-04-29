@@ -95,6 +95,8 @@ const ALL_COMMANDS = [
     { value: '/commands', name: '/commands     Manage custom slash commands' },
     { value: '/status',   name: '/status       Show session status' },
     { value: '/telegram', name: '/telegram     Configure and manage the Telegram bot channel' },
+    { value: '/git',      name: '/git          Interactive git workflow (stage, diff, commit, push)' },
+    { value: '/share',    name: '/share        Export session as markdown file' },
     { value: '/exit',     name: '/exit         Save session & exit' },
 ];
 
@@ -632,6 +634,12 @@ export class ReplManager {
                 break;
             case '/telegram':
                 await this.handleTelegramCommand();
+                break;
+            case '/git':
+                await this.handleGitCommand();
+                break;
+            case '/share':
+                await this.handleShareCommand();
                 break;
             case '/memory':
                 await this.handleMemoryCommand(args);
@@ -1179,6 +1187,160 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
             console.log(chalk.green(`Base URL updated for ${currentProvider}.`));
             this.initializeClient();
         }
+    }
+
+    private async handleGitCommand() {
+        const { execSync } = require('child_process');
+        const run = (cmd: string): string => {
+            try { return execSync(cmd, { cwd: process.cwd(), encoding: 'utf-8', stdio: ['pipe','pipe','pipe'] }).trim(); }
+            catch (e: any) { return e.stdout?.trim() || e.message; }
+        };
+
+        // Check if inside a git repo
+        const root = run('git rev-parse --show-toplevel');
+        if (root.startsWith('fatal')) {
+            console.log(chalk.red('  Not a git repository.'));
+            return;
+        }
+
+        while (true) {
+            const status = run('git status --short');
+            const branch = run('git rev-parse --abbrev-ref HEAD');
+            const ahead  = run('git rev-list @{u}..HEAD --count 2>/dev/null || echo 0').split('\n')[0];
+
+            console.log(chalk.cyan('\n  ── Git ─────────────────────────────────────────'));
+            console.log(chalk.dim(`  Branch: `) + chalk.yellow(branch) + (Number(ahead) > 0 ? chalk.dim(` (${ahead} ahead)`) : ''));
+            if (status) {
+                console.log(chalk.dim('  Changes:'));
+                for (const line of status.split('\n')) {
+                    const flag = line.slice(0, 2);
+                    const file = line.slice(3);
+                    const color = flag.includes('M') ? chalk.yellow : flag.includes('?') ? chalk.dim : chalk.green;
+                    console.log('    ' + color(line));
+                }
+            } else {
+                console.log(chalk.green('  ✓ Working tree clean'));
+            }
+            console.log();
+
+            const { action } = await inquirer.prompt([{
+                type: 'list', name: 'action', message: 'Git', prefix: '',
+                choices: [
+                    { name: 'Show diff',         value: 'diff'   },
+                    { name: 'Stage all changes', value: 'add'    },
+                    { name: 'Stage specific files', value: 'addfile' },
+                    { name: 'Commit',            value: 'commit' },
+                    { name: 'Push',              value: 'push'   },
+                    { name: 'Pull',              value: 'pull'   },
+                    { name: 'Log (last 10)',     value: 'log'    },
+                    { name: 'Back',              value: 'back'   },
+                ],
+            }]);
+
+            if (action === 'back') break;
+
+            if (action === 'diff') {
+                const diff = run('git diff') || run('git diff --staged') || '(no diff)';
+                const lines = diff.split('\n').slice(0, 60);
+                for (const l of lines) {
+                    if (l.startsWith('+') && !l.startsWith('+++')) console.log(chalk.green(l));
+                    else if (l.startsWith('-') && !l.startsWith('---')) console.log(chalk.red(l));
+                    else console.log(chalk.dim(l));
+                }
+                if (diff.split('\n').length > 60) console.log(chalk.dim('  … (truncated)'));
+            }
+
+            if (action === 'add') {
+                const out = run('git add -A');
+                console.log(chalk.green('  ✓ All changes staged.') + (out ? ' ' + out : ''));
+            }
+
+            if (action === 'addfile') {
+                const unstaged = run('git status --short').split('\n').filter(Boolean).map(l => l.slice(3));
+                if (!unstaged.length) { console.log(chalk.dim('  Nothing to stage.')); continue; }
+                const { files } = await inquirer.prompt([{
+                    type: 'checkbox', name: 'files', message: 'Select files to stage:', prefix: '',
+                    choices: unstaged,
+                }]);
+                if (files.length) { run(`git add -- ${files.map((f: string) => JSON.stringify(f)).join(' ')}`); console.log(chalk.green(`  ✓ Staged ${files.length} file(s).`)); }
+            }
+
+            if (action === 'commit') {
+                const { message } = await inquirer.prompt([{ type: 'input', name: 'message', message: 'Commit message:', prefix: '' }]);
+                if (message.trim()) {
+                    const out = run(`git commit -m ${JSON.stringify(message.trim())}`);
+                    console.log(out.includes('nothing to commit') ? chalk.yellow('  Nothing to commit.') : chalk.green('  ✓ ' + out.split('\n')[0]));
+                }
+            }
+
+            if (action === 'push') {
+                console.log(chalk.dim('  Pushing…'));
+                const out = run('git push');
+                console.log(out.includes('error') || out.includes('fatal') ? chalk.red('  ' + out) : chalk.green('  ✓ Pushed.'));
+            }
+
+            if (action === 'pull') {
+                console.log(chalk.dim('  Pulling…'));
+                const out = run('git pull');
+                console.log(chalk.dim('  ' + out.split('\n')[0]));
+            }
+
+            if (action === 'log') {
+                const log = run('git log -10 --oneline --decorate');
+                for (const l of log.split('\n')) console.log(chalk.dim('  ') + l);
+            }
+        }
+    }
+
+    private async handleShareCommand() {
+        if (this.history.length === 0) {
+            console.log(chalk.yellow('  No conversation to share yet.'));
+            return;
+        }
+
+        const { format } = await inquirer.prompt([{
+            type: 'list', name: 'format', message: 'Export format:', prefix: '',
+            choices: [
+                { name: 'Markdown file (.md)',  value: 'md'  },
+                { name: 'Plain text (.txt)',    value: 'txt' },
+                { name: 'Back',                value: 'back'},
+            ],
+        }]);
+        if (format === 'back') return;
+
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const defaultName = `mentis-session-${timestamp}.${format}`;
+        const { filename } = await inquirer.prompt([{
+            type: 'input', name: 'filename',
+            message: 'Save as:', prefix: '',
+            default: defaultName,
+        }]);
+
+        const lines: string[] = [];
+        if (format === 'md') {
+            lines.push(`# Mentis Session — ${new Date().toLocaleString()}\n`);
+            for (const msg of this.history) {
+                if (msg.role === 'system' || msg.role === 'tool') continue;
+                const content = typeof msg.content === 'string' ? msg.content : '';
+                if (!content) continue;
+                if (msg.role === 'user') {
+                    lines.push(`## 🧑 User\n\n${content}\n`);
+                } else {
+                    lines.push(`## 🤖 Mentis\n\n${content}\n`);
+                }
+            }
+        } else {
+            for (const msg of this.history) {
+                if (msg.role === 'system' || msg.role === 'tool') continue;
+                const content = typeof msg.content === 'string' ? msg.content : '';
+                if (!content) continue;
+                lines.push(`[${msg.role.toUpperCase()}]\n${content}\n`);
+            }
+        }
+
+        const outPath = path.resolve(process.cwd(), filename.trim() || defaultName);
+        fs.writeFileSync(outPath, lines.join('\n'));
+        console.log(chalk.green(`  ✓ Session exported to ${outPath}`));
     }
 
     private async handleTelegramCommand() {

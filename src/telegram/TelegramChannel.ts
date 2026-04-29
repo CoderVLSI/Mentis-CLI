@@ -1,10 +1,12 @@
 /**
  * Telegram channel for Mentis CLI.
  *
- * Long-polls the Telegram Bot API and processes incoming messages through a
- * headless agent that uses the same provider/model config as the CLI.
- * Each Telegram conversation maintains its own history (separate from the
- * interactive REPL session).
+ * Features:
+ *   - /clear or /reset  — wipe chat history
+ *   - /help             — show available bot commands
+ *   - Image support     — photos are downloaded and passed as base64 to the model
+ *   - Group chat        — mentions of @botUsername are stripped; bot responds when
+ *                         mentioned or replied to in groups
  *
  * Config keys in ~/.mentisrc:
  *   telegram.botToken        — bot token from @BotFather
@@ -32,6 +34,15 @@ const TG = 'https://api.telegram.org'
 const SYSTEM_PROMPT = `You are Mentis, an expert AI coding agent. Working directory: ${process.cwd()}.
 You have file and shell tools available. Be concise — your responses will be read in Telegram.`
 
+const BOT_HELP = `🤖 *Mentis Bot Commands*
+
+/help  — show this message
+/reset — start a fresh conversation
+/clear — same as /reset
+
+Just send a message to chat with the agent.
+Send a photo to include an image in your message.`
+
 // ── Telegram helpers ──────────────────────────────────────────────────────────
 
 async function tgCall(
@@ -48,11 +59,31 @@ async function tgCall(
   }
 }
 
-async function sendMessage(token: string, chatId: number, text: string): Promise<void> {
+async function sendMessage(token: string, chatId: number, text: string, replyToId?: number): Promise<void> {
   const MAX = 4000
   for (let i = 0; i < text.length; i += MAX) {
-    await tgCall(token, 'sendMessage', { chat_id: chatId, text: text.slice(i, i + MAX) })
+    const payload: Record<string, unknown> = {
+      chat_id:    chatId,
+      text:       text.slice(i, i + MAX),
+      parse_mode: 'Markdown',
+    }
+    if (i === 0 && replyToId) payload.reply_to_message_id = replyToId
+    await tgCall(token, 'sendMessage', payload)
   }
+}
+
+/** Download a Telegram file and return base64 data URL */
+async function downloadPhoto(token: string, fileId: string): Promise<string | null> {
+  try {
+    const fileInfo = await tgCall(token, 'getFile', { file_id: fileId })
+    const filePath = ((fileInfo.result as Record<string, unknown>)?.file_path as string) || ''
+    if (!filePath) return null
+    const url  = `${TG}/file/bot${token}/${filePath}`
+    const resp = await axios.get(url, { responseType: 'arraybuffer', timeout: 15000 })
+    const b64  = Buffer.from(resp.data as ArrayBuffer).toString('base64')
+    const mime = filePath.endsWith('.png') ? 'image/png' : 'image/jpeg'
+    return `data:${mime};base64,${b64}`
+  } catch { return null }
 }
 
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)) }
@@ -73,7 +104,7 @@ const chatHistories = new Map<number, ChatMessage[]>()
 // ── Build model client from CLI config ────────────────────────────────────────
 
 function buildClient(): ModelClient {
-  const config  = new ConfigManager().getConfig()
+  const config   = new ConfigManager().getConfig()
   const provider = config.defaultProvider || 'ollama'
 
   if (provider === 'anthropic') {
@@ -82,7 +113,6 @@ function buildClient(): ModelClient {
     return new AnthropicClient(apiKey, model)
   }
 
-  // Ollama / OpenAI-compatible
   const rawBase = config.ollama?.baseUrl || 'http://localhost:11434/v1'
   const base    = rawBase.replace(/\/$/, '').endsWith('/v1') ? rawBase.replace(/\/$/, '') : `${rawBase.replace(/\/$/, '')}/v1`
   const apiKey  = config.openai?.apiKey  || 'ollama'
@@ -115,12 +145,23 @@ function buildTools(autoApprove: boolean): Tool[] {
 // ── Headless chat ─────────────────────────────────────────────────────────────
 
 async function runAgent(
-  client:  ModelClient,
-  tools:   Tool[],
-  history: ChatMessage[],
-  userMsg: string
+  client:   ModelClient,
+  tools:    Tool[],
+  history:  ChatMessage[],
+  userMsg:  string,
+  imageB64: string | null = null
 ): Promise<string> {
-  history.push({ role: 'user', content: userMsg })
+  // Build content — include image if provided
+  let content: ChatMessage['content']
+  if (imageB64) {
+    content = [
+      { type: 'image_url', image_url: { url: imageB64 } },
+      { type: 'text',      text: userMsg || 'What is in this image?' },
+    ] as unknown as ChatMessage['content']
+  } else {
+    content = userMsg
+  }
+  history.push({ role: 'user', content })
 
   const toolDefs: ToolDefinition[] = tools.map(t => ({
     type: 'function',
@@ -128,13 +169,10 @@ async function runAgent(
   }))
 
   const systemMessages: ChatMessage[] = [{ role: 'system', content: SYSTEM_PROMPT }]
-
   let response = await client.chat([...systemMessages, ...history], toolDefs)
 
-  // Tool loop
   while (response.tool_calls && response.tool_calls.length > 0) {
     history.push({ role: 'assistant', content: response.content, tool_calls: response.tool_calls })
-
     for (const tc of response.tool_calls) {
       const tool = tools.find(t => t.name === tc.function.name)
       let result = ''
@@ -146,11 +184,10 @@ async function runAgent(
       }
       history.push({ role: 'tool', tool_call_id: tc.id, name: tc.function.name, content: result })
     }
-
     response = await client.chat([...systemMessages, ...history], toolDefs)
   }
 
-  const finalText = response.content || '✓ Done'
+  const finalText = typeof response.content === 'string' ? response.content : '✓ Done'
   history.push({ role: 'assistant', content: finalText })
   return finalText
 }
@@ -159,14 +196,21 @@ async function runAgent(
 
 const _busy = new Set<number>()
 
+interface IncomingMsg {
+  text:      string
+  imageB64:  string | null
+  messageId: number
+  isGroup:   boolean
+}
+
 async function handleMessage(
-  token:          string,
-  chatId:         number,
-  text:           string,
-  client:         ModelClient,
-  tools:          Tool[],
-  onAgentReply?:  (reply: string, fromName: string) => void,
-  fromName?:      string
+  token:         string,
+  chatId:        number,
+  msg:           IncomingMsg,
+  client:        ModelClient,
+  tools:         Tool[],
+  onAgentReply?: (reply: string, fromName: string) => void,
+  fromName?:     string
 ): Promise<void> {
   if (_busy.has(chatId)) {
     await sendMessage(token, chatId, '⏳ Still working on previous message…')
@@ -174,7 +218,6 @@ async function handleMessage(
   }
   _busy.add(chatId)
 
-  // Typing indicator
   let stopped = false
   const typing = setInterval(() => {
     if (!stopped) tgCall(token, 'sendChatAction', { chat_id: chatId, action: 'typing' })
@@ -184,19 +227,25 @@ async function handleMessage(
   if (!chatHistories.has(chatId)) chatHistories.set(chatId, [])
   const history = chatHistories.get(chatId)!
 
-  // /clear command
-  if (text.trim() === '/clear') {
+  const cmd = msg.text.trim().split(' ')[0].replace(`@${_username}`, '').toLowerCase()
+
+  // Bot commands
+  if (cmd === '/clear' || cmd === '/reset') {
     chatHistories.set(chatId, [])
-    stopped = true; clearInterval(typing)
-    _busy.delete(chatId)
-    await sendMessage(token, chatId, '🧹 History cleared.')
+    stopped = true; clearInterval(typing); _busy.delete(chatId)
+    await sendMessage(token, chatId, '🧹 Conversation reset. Start fresh!', msg.messageId)
+    return
+  }
+  if (cmd === '/help' || cmd === '/start') {
+    stopped = true; clearInterval(typing); _busy.delete(chatId)
+    await sendMessage(token, chatId, BOT_HELP, msg.messageId)
     return
   }
 
   try {
-    const reply = await runAgent(client, tools, history, text)
+    const reply = await runAgent(client, tools, history, msg.text, msg.imageB64)
     stopped = true; clearInterval(typing)
-    await sendMessage(token, chatId, reply)
+    await sendMessage(token, chatId, reply, msg.isGroup ? msg.messageId : undefined)
     onAgentReply?.(reply, fromName || 'Bot')
   } catch (e: unknown) {
     stopped = true; clearInterval(typing)
@@ -221,14 +270,14 @@ export async function startCliTelegramChannel(
   const token = (tg.botToken || '').trim()
   if (!token) return
 
-  _stop    = false
-  _running = false
+  _stop     = false
+  _running  = false
   _username = ''
 
   const me = await tgCall(token, 'getMe')
   if (!me.ok) { console.error('[telegram] Invalid bot token'); return }
   _username = ((me.result as Record<string, unknown>)?.username as string) || ''
-  _running = true
+  _running  = true
   console.log(`[telegram] Bot @${_username} connected`)
 
   const client = buildClient()
@@ -245,30 +294,62 @@ export async function startCliTelegramChannel(
 
       if (!result?.ok) { await sleep(3000); continue }
 
+      type TgPhoto = { file_id: string; file_unique_id: string; width: number; height: number; file_size?: number }
       type TgUpdate = {
         update_id: number
         message?: {
-          chat: { id: number }
+          message_id: number
+          chat: { id: number; type: string }
           from: { id: number; first_name: string; username?: string }
           text?: string
+          caption?: string
+          photo?: TgPhoto[]
+          reply_to_message?: { from?: { is_bot?: boolean } }
         }
       }
 
       for (const update of (result.result ?? []) as TgUpdate[]) {
         offset = update.update_id + 1
-        const msg = update.message
-        if (!msg?.text) continue
+        const m = update.message
+        if (!m) continue
 
-        const chatId = msg.chat.id
+        // Must have text or photo
+        if (!m.text && !m.photo && !m.caption) continue
+
+        const chatId  = m.chat.id
+        const isGroup = m.chat.type === 'group' || m.chat.type === 'supergroup'
+
+        // In groups, only respond when mentioned or replied to
+        if (isGroup) {
+          const mentionedByName = (m.text || m.caption || '').includes(`@${_username}`)
+          const repliedToBot    = m.reply_to_message?.from?.is_bot === true
+          if (!mentionedByName && !repliedToBot) continue
+        }
+
         if (allowedChatIds.length > 0 && !allowedChatIds.includes(chatId)) {
           await sendMessage(token, chatId, '⛔ Not authorised.')
           continue
         }
 
-        const fromName = msg.from.username ? `@${msg.from.username}` : msg.from.first_name
-        onUserMessage?.(msg.text, fromName)
+        // Strip @mention from text for groups
+        const rawText = (m.text || m.caption || '').replace(new RegExp(`@${_username}`, 'gi'), '').trim()
 
-        handleMessage(token, chatId, msg.text, client, tools, onAgentReply, fromName).catch(() => {})
+        // Download photo if present (use largest size)
+        let imageB64: string | null = null
+        if (m.photo && m.photo.length > 0) {
+          const largest = m.photo.reduce((a, b) => (b.file_size || 0) > (a.file_size || 0) ? b : a)
+          imageB64 = await downloadPhoto(token, largest.file_id)
+        }
+
+        const fromName = m.from.username ? `@${m.from.username}` : m.from.first_name
+        const displayText = rawText || (imageB64 ? '[image]' : '')
+        onUserMessage?.(displayText, fromName)
+
+        handleMessage(
+          token, chatId,
+          { text: rawText, imageB64, messageId: m.message_id, isGroup },
+          client, tools, onAgentReply, fromName
+        ).catch(() => {})
       }
     } catch {
       if (!_stop) await sleep(5000)

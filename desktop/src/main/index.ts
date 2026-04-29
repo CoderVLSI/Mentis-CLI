@@ -1,7 +1,7 @@
 import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { HeadlessEngine, loadConfig, saveConfig } from './engine'
+import { HeadlessEngine, loadConfig, saveConfig, listPersonas, savePersonas, Persona } from './engine'
 import { startSyncServer, getSyncToken } from './syncServer'
 import { startTelegramChannel, stopTelegramChannel, isTelegramRunning, getTelegramBotUsername } from './telegramChannel'
 import os from 'os'
@@ -223,6 +223,21 @@ ipcMain.handle('mcp:uninstall', (_e, name: string) => {
     return { ok: true }
   } catch (e: unknown) { return { ok: false, error: (e as Error).message } }
 })
+
+// ── Personas ──────────────────────────────────────────────────────────────────
+ipcMain.handle('personas:list', () => listPersonas())
+
+ipcMain.handle('personas:save', (_e, personas: Persona[]) => {
+  savePersonas(personas)
+  return { ok: true }
+})
+
+ipcMain.handle('personas:apply', (_e, prompt: string) => {
+  engine.setPersona(prompt)
+  return { ok: true }
+})
+
+ipcMain.handle('personas:active', () => engine.getPersona())
 
 ipcMain.handle('hooks:list', () => {
   try {
