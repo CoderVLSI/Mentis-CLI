@@ -160,11 +160,13 @@ async function runAgent(
 const _busy = new Set<number>()
 
 async function handleMessage(
-  token:       string,
-  chatId:      number,
-  text:        string,
-  client:      ModelClient,
-  tools:       Tool[]
+  token:          string,
+  chatId:         number,
+  text:           string,
+  client:         ModelClient,
+  tools:          Tool[],
+  onAgentReply?:  (reply: string, fromName: string) => void,
+  fromName?:      string
 ): Promise<void> {
   if (_busy.has(chatId)) {
     await sendMessage(token, chatId, '⏳ Still working on previous message…')
@@ -195,6 +197,7 @@ async function handleMessage(
     const reply = await runAgent(client, tools, history, text)
     stopped = true; clearInterval(typing)
     await sendMessage(token, chatId, reply)
+    onAgentReply?.(reply, fromName || 'Bot')
   } catch (e: unknown) {
     stopped = true; clearInterval(typing)
     await sendMessage(token, chatId, `⚠ ${(e as Error).message}`)
@@ -208,7 +211,8 @@ async function handleMessage(
 export async function startCliTelegramChannel(
   allowedChatIds: number[],
   autoApprove:    boolean,
-  onUserMessage?: (text: string, fromName: string) => void
+  onUserMessage?: (text: string, fromName: string) => void,
+  onAgentReply?:  (reply: string, fromName: string) => void
 ): Promise<void> {
   if (_running) { stopCliTelegramChannel(); await sleep(500) }
 
@@ -264,7 +268,7 @@ export async function startCliTelegramChannel(
         const fromName = msg.from.username ? `@${msg.from.username}` : msg.from.first_name
         onUserMessage?.(msg.text, fromName)
 
-        handleMessage(token, chatId, msg.text, client, tools).catch(() => {})
+        handleMessage(token, chatId, msg.text, client, tools, onAgentReply, fromName).catch(() => {})
       }
     } catch {
       if (!_stop) await sleep(5000)

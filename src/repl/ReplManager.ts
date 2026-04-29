@@ -1266,9 +1266,15 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
             await new Promise(r => setTimeout(r, 400))
             const rawIds    = (freshTg.allowedChatIds || '').split(',').map((s: string) => parseInt(s.trim(), 10)).filter((n: number) => !isNaN(n))
             const autoApprove = Boolean(freshTg.autoApprove)
-            startCliTelegramChannel(rawIds, autoApprove, (text, fromName) => {
-                process.stdout.write(`\n${chalk.magenta(`[Telegram ${fromName}]`)} ${text}\n`)
-            }).catch((e: Error) => console.log(chalk.red(`  Telegram error: ${e.message}`)))
+            startCliTelegramChannel(
+                rawIds, autoApprove,
+                (text, fromName) => {
+                    process.stdout.write(`\n${chalk.magenta(`[Telegram ${fromName}]`)} ${text}\n`)
+                },
+                (reply) => {
+                    process.stdout.write(`\n${chalk.cyan('[Mentis → Telegram]')} ${reply}\n`)
+                }
+            ).catch((e: Error) => console.log(chalk.red(`  Telegram error: ${e.message}`)))
             await new Promise(r => setTimeout(r, 1200))
             if (isCliTelegramRunning()) {
                 console.log(chalk.green(`  ✓ Bot @${getCliBotUsername()} is now online.`))

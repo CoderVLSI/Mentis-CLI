@@ -120,10 +120,15 @@ async function main(): Promise<void> {
     if (tgToken) {
         const rawIds     = (tg.allowedChatIds || '').split(',').map((s: string) => parseInt(s.trim(), 10)).filter((n: number) => !isNaN(n))
         const autoApprove = Boolean(tg.autoApprove)
-        startCliTelegramChannel(rawIds, autoApprove, (text, fromName) => {
-            // Print incoming Telegram message to the CLI terminal
-            process.stdout.write(`\n\x1b[35m[Telegram ${fromName}]\x1b[0m ${text}\n`)
-        }).catch(() => {})
+        startCliTelegramChannel(
+            rawIds, autoApprove,
+            (text, fromName) => {
+                process.stdout.write(`\n\x1b[35m[Telegram ${fromName}]\x1b[0m ${text}\n`)
+            },
+            (reply) => {
+                process.stdout.write(`\n\x1b[36m[Mentis → Telegram]\x1b[0m ${reply}\n`)
+            }
+        ).catch(() => {})
     }
 
     // Start REPL with options
