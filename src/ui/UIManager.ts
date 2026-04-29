@@ -112,7 +112,7 @@ export class UIManager {
         const divider = '─'.repeat(inner);
         console.log(chalk.cyan('├') + chalk.dim(divider) + chalk.cyan('┤'));
 
-        const tips = chalk.dim('  /help  /config  /model  /sidekick    type /s + Enter → cmd list');
+        const tips = chalk.dim('  /help  /config  /model  /sidekick  /telegram    type /s + Enter → cmd list');
         const tipsPad = Math.max(0, inner - visLen(tips));
         console.log(chalk.cyan('│') + tips + ' '.repeat(tipsPad) + chalk.cyan('│'));
 
