@@ -108,10 +108,17 @@ const TOOLS = [
   { type: 'function', function: { name: 'edit_file',  description: 'Replace text in file.',                 parameters: { type: 'object', properties: { file_path: { type: 'string' }, old_string: { type: 'string' }, new_string: { type: 'string' } },                                       required: ['file_path', 'old_string', 'new_string'] } } },
   { type: 'function', function: { name: 'list_dir',   description: 'List a directory.',                     parameters: { type: 'object', properties: { path: { type: 'string' } },                                                                                                           required: ['path'] } } },
   { type: 'function', function: { name: 'run_shell',  description: 'Run a shell command.',                  parameters: { type: 'object', properties: { command: { type: 'string' } },                                                                                                        required: ['command'] } } },
-  { type: 'function', function: { name: 'web_search', description: 'Search the web for current information. Use for news, docs, prices, or anything that may have changed recently.', parameters: { type: 'object', properties: { query: { type: 'string', description: 'Search query' } }, required: ['query'] } } },
+  { type: 'function', function: { name: 'web_search',  description: 'Search the web for current information. Use for news, docs, prices, or anything that may have changed recently.', parameters: { type: 'object', properties: { query: { type: 'string', description: 'Search query' } }, required: ['query'] } } },
+  { type: 'function', function: { name: 'git_status', description: 'Show working tree status (staged, unstaged, untracked files).', parameters: { type: 'object', properties: {} } } },
+  { type: 'function', function: { name: 'git_diff',   description: 'Show diff of unstaged or staged changes. Pass staged:true for staged diff, or file_path to diff a specific file.', parameters: { type: 'object', properties: { staged: { type: 'boolean' }, file_path: { type: 'string' } } } } },
+  { type: 'function', function: { name: 'git_log',    description: 'Show recent commit history. Optionally limit number of commits.', parameters: { type: 'object', properties: { limit: { type: 'number' } } } } },
+  { type: 'function', function: { name: 'git_add',    description: 'Stage files for commit. Pass file_paths array or "." to stage all.', parameters: { type: 'object', properties: { file_paths: { type: 'array', items: { type: 'string' } } }, required: ['file_paths'] } } },
+  { type: 'function', function: { name: 'git_commit', description: 'Commit staged changes with a message.', parameters: { type: 'object', properties: { message: { type: 'string' } }, required: ['message'] } } },
+  { type: 'function', function: { name: 'git_push',   description: 'Push commits to remote. Optionally specify remote and branch.', parameters: { type: 'object', properties: { remote: { type: 'string' }, branch: { type: 'string' } } } } },
+  { type: 'function', function: { name: 'git_pull',   description: 'Pull latest changes from remote.', parameters: { type: 'object', properties: { remote: { type: 'string' }, branch: { type: 'string' } } } } },
 ]
 
-const NEEDS_APPROVAL = new Set(['write_file', 'edit_file', 'run_shell'])
+const NEEDS_APPROVAL = new Set(['write_file', 'edit_file', 'run_shell', 'git_add', 'git_commit', 'git_push', 'git_pull'])
 
 async function executeTool(name: string, args: Record<string, unknown>, cwd: string): Promise<string> {
   try {
@@ -145,6 +152,42 @@ async function executeTool(name: string, args: Record<string, unknown>, cwd: str
       const organic = (res.data.organic || []) as SR[]
       if (!organic.length) return 'No results found.'
       return organic.map((r, i) => `${i + 1}. ${r.title}\n   ${r.link}\n   ${r.snippet || ''}`).join('\n\n')
+    }
+    if (name === 'git_status') {
+      const { execSync } = require('child_process')
+      return execSync('git status', { cwd, encoding: 'utf-8' })
+    }
+    if (name === 'git_diff') {
+      const { execSync } = require('child_process')
+      const staged = args.staged ? '--staged' : ''
+      const file   = args.file_path ? ` -- ${args.file_path}` : ''
+      return execSync(`git diff ${staged}${file}`.trim(), { cwd, encoding: 'utf-8' }) || '(no diff)'
+    }
+    if (name === 'git_log') {
+      const { execSync } = require('child_process')
+      const n = args.limit ? `-${args.limit}` : '-10'
+      return execSync(`git log ${n} --oneline --decorate`, { cwd, encoding: 'utf-8' })
+    }
+    if (name === 'git_add') {
+      const { execSync } = require('child_process')
+      const files = (args.file_paths as string[]).join(' ')
+      return execSync(`git add ${files}`, { cwd, encoding: 'utf-8' }) || 'Staged.'
+    }
+    if (name === 'git_commit') {
+      const { execSync } = require('child_process')
+      return execSync(`git commit -m ${JSON.stringify(args.message as string)}`, { cwd, encoding: 'utf-8' })
+    }
+    if (name === 'git_push') {
+      const { execSync } = require('child_process')
+      const remote = (args.remote as string) || 'origin'
+      const branch = (args.branch as string) || ''
+      return execSync(`git push ${remote} ${branch}`.trim(), { cwd, encoding: 'utf-8', timeout: 30000 })
+    }
+    if (name === 'git_pull') {
+      const { execSync } = require('child_process')
+      const remote = (args.remote as string) || 'origin'
+      const branch = (args.branch as string) || ''
+      return execSync(`git pull ${remote} ${branch}`.trim(), { cwd, encoding: 'utf-8', timeout: 30000 })
     }
     return `Unknown tool: ${name}`
   } catch (e: unknown) { return `Error: ${(e as Error).message}` }
@@ -399,17 +442,18 @@ export class HeadlessEngine extends EventEmitter {
 Analyze the codebase using read-only tools (read_file, list_dir, web_search), then produce a clear numbered plan with exact file paths and changes needed. Do NOT write files or run shell commands. Tell the user to switch to BUILD mode when ready.${globalInstructions}`
       : `You are Mentis, an expert AI coding agent in BUILD MODE. Working directory: ${this.cwd}.
 
-You have: read_file, write_file, edit_file, list_dir, run_shell, web_search.
+You have: read_file, write_file, edit_file, list_dir, run_shell, web_search, git_status, git_diff, git_log, git_add, git_commit, git_push, git_pull.
 
 ## Rules
 - Explore before editing: list_dir + read_file to understand structure and conventions first.
-- Use run_shell for ALL terminal operations: npm install, npm test, npx tsc --noEmit, python -m pytest, cargo check, git status/diff/add/commit, grep -r, find, cat, ls, mkdir, etc.
+- Use run_shell for build/test/lint: npm install, npm test, npx tsc --noEmit, python -m pytest, cargo check, grep -r, find, cat, ls, mkdir, etc.
+- Use dedicated git tools (git_status, git_diff, git_log, git_add, git_commit, git_push, git_pull) for all git operations — do NOT use run_shell for git.
 - After every file change, verify it works with run_shell (build / test / lint). Fix errors immediately.
 - Never hallucinate file contents — always read_file before editing.
 - Keep responses concise. Let tool output speak for itself.
 - If a command fails, read the error, diagnose the cause, fix it — don't give up.${globalInstructions}`
 
-    const PLAN_SAFE = new Set(['read_file', 'list_dir', 'web_search'])
+    const PLAN_SAFE = new Set(['read_file', 'list_dir', 'web_search', 'git_status', 'git_diff', 'git_log'])
     const activeTools = this.mode === 'PLAN' ? TOOLS.filter(t => PLAN_SAFE.has(t.function.name)) : TOOLS
 
     try {
