@@ -37,6 +37,7 @@ export interface SessionMeta {
   updatedAt: number
   messageCount: number
   cwd?: string
+  source?: 'cli' | 'desktop'
 }
 
 export interface EngineEvent {
