@@ -52,7 +52,8 @@ import { AnthropicClient } from '../llm/AnthropicClient';
 import { SidekickManager } from '../sidekick/SidekickManager';
 import { renderBanner, renderCard, renderInteraction } from '../sidekick/SidekickDisplay';
 import { MemoryManager } from '../memory/MemoryManager';
-import { startCliTelegramChannel, stopCliTelegramChannel, isCliTelegramRunning, getCliBotUsername } from '../telegram/TelegramChannel';
+import { startCliTelegramChannel, stopCliTelegramChannel, isCliTelegramRunning, getCliBotUsername } from '../telegram/TelegramChannel'
+import { Scheduler, loadTasks, saveTasks, parseInterval, ScheduledTask } from '../scheduler/Scheduler';
 
 const HISTORY_FILE     = path.join(os.homedir(), '.mentis_history');
 const GLOBAL_SESS_DIR  = path.join(os.homedir(), '.mentis', 'sessions');
@@ -97,6 +98,7 @@ const ALL_COMMANDS = [
     { value: '/telegram', name: '/telegram     Configure and manage the Telegram bot channel' },
     { value: '/git',      name: '/git          Interactive git workflow (stage, diff, commit, push)' },
     { value: '/share',    name: '/share        Export session as markdown file' },
+    { value: '/schedule', name: '/schedule     Manage scheduled agent tasks (cron)' },
     { value: '/exit',     name: '/exit         Save session & exit' },
 ];
 
@@ -137,6 +139,7 @@ export class ReplManager {
     private pendingImages: ImageAttachment[] = [];
     private sessionAllowedTools: Set<string> = new Set(); // tools allowed for whole session
     private sessionDeniedTools: Set<string> = new Set();  // tools denied for whole session
+    private scheduler: Scheduler;
 
     constructor(options: CliOptions = { resume: false, yolo: false, headless: false }) {
         this.options = options;
@@ -154,6 +157,9 @@ export class ReplManager {
         this.agentManager = new AgentManager();
         this.sidekickManager = new SidekickManager();
         this.memoryManager = new MemoryManager();
+        this.scheduler = new Scheduler(async (task) => {
+            await this.handleChat(task.prompt)
+        })
         this.instructionsLoader = new InstructionsLoader();
         this.projectInstructions = this.instructionsLoader.load();
         this.hooksManager = new HooksManager(this.settingsManager.getHooks());
@@ -364,6 +370,7 @@ export class ReplManager {
     }
 
     public async start() {
+        this.scheduler.start()
         await this.hooksManager.run('SessionStart', { sessionId: this.sessionId });
 
         if (!this.instructionsLoader.hasInstructions()) {
@@ -641,6 +648,9 @@ export class ReplManager {
             case '/share':
                 await this.handleShareCommand();
                 break;
+            case '/schedule':
+                await this.handleScheduleCommand();
+                break;
             case '/memory':
                 await this.handleMemoryCommand(args);
                 break;
@@ -653,6 +663,7 @@ export class ReplManager {
                 this.shell.kill();
                 this.mcpManager.disconnectAll();
                 this.sidekickManager.endSession();
+                this.scheduler.stop();
                 // Extract and persist memories from this session in background
                 await this.extractAndSaveMemories();
                 console.log(chalk.green('Session saved. Goodbye!'));
@@ -1341,6 +1352,131 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
         const outPath = path.resolve(process.cwd(), filename.trim() || defaultName);
         fs.writeFileSync(outPath, lines.join('\n'));
         console.log(chalk.green(`  ✓ Session exported to ${outPath}`));
+    }
+
+    private async handleScheduleCommand() {
+        const tasks = loadTasks()
+
+        console.log(chalk.cyan('\n  ── Scheduled Tasks ────────────────────────────────'))
+        if (tasks.length === 0) {
+            console.log(chalk.dim('  No scheduled tasks yet.'))
+        } else {
+            for (const t of tasks) {
+                const next = t.enabled
+                    ? `next: ${new Date(t.nextRun).toLocaleString()}`
+                    : 'disabled'
+                const status = t.enabled ? chalk.green('●') : chalk.dim('○')
+                console.log(`  ${status} [${t.id}] every ${t.interval}  — ${next}`)
+                console.log(chalk.dim(`      "${t.prompt.slice(0, 60)}${t.prompt.length > 60 ? '…' : ''}"`))
+            }
+        }
+        console.log()
+
+        const { action } = await inquirer.prompt([{
+            type:    'list',
+            name:    'action',
+            message: 'Scheduled Tasks',
+            prefix:  '',
+            choices: [
+                { name: 'Add new task',      value: 'add'    },
+                { name: 'Enable / Disable',  value: 'toggle' },
+                { name: 'Run now',           value: 'run'    },
+                { name: 'Delete task',       value: 'delete' },
+                { name: 'Back',              value: 'back'   },
+            ],
+        }])
+
+        if (action === 'back') return
+
+        if (action === 'add') {
+            const { prompt } = await inquirer.prompt([{
+                type:    'input',
+                name:    'prompt',
+                message: 'Prompt to run on schedule:',
+                validate: (v: string) => v.trim().length > 0 || 'Enter a prompt',
+            }])
+            const { interval } = await inquirer.prompt([{
+                type:    'input',
+                name:    'interval',
+                message: 'Interval (e.g. 30m, 1h, 6h, 1d):',
+                default: '1h',
+                validate: (v: string) => parseInterval(v) !== null || 'Use format: 30s, 5m, 2h, 1d',
+            }])
+            const ms  = parseInterval(interval)!
+            const now = Date.now()
+            const task: ScheduledTask = {
+                id:         Date.now().toString(36),
+                prompt:     prompt.trim(),
+                interval,
+                intervalMs: ms,
+                lastRun:    0,
+                nextRun:    now + ms,
+                enabled:    true,
+                createdAt:  now,
+            }
+            const all = loadTasks()
+            all.push(task)
+            saveTasks(all)
+            console.log(chalk.green(`  ✓ Task [${task.id}] added — first run at ${new Date(task.nextRun).toLocaleString()}`))
+        }
+
+        if (action === 'toggle') {
+            if (tasks.length === 0) { console.log(chalk.dim('  No tasks.')); return }
+            const { id } = await inquirer.prompt([{
+                type:    'list',
+                name:    'id',
+                message: 'Select task:',
+                choices: tasks.map(t => ({
+                    name:  `[${t.id}] every ${t.interval} — ${t.enabled ? 'enabled' : 'disabled'}`,
+                    value: t.id,
+                })),
+            }])
+            const all  = loadTasks()
+            const task = all.find(t => t.id === id)!
+            task.enabled = !task.enabled
+            if (task.enabled) task.nextRun = Date.now() + task.intervalMs
+            saveTasks(all)
+            console.log(task.enabled
+                ? chalk.green(`  ✓ Task [${id}] enabled.`)
+                : chalk.yellow(`  Task [${id}] disabled.`))
+        }
+
+        if (action === 'run') {
+            if (tasks.length === 0) { console.log(chalk.dim('  No tasks.')); return }
+            const { id } = await inquirer.prompt([{
+                type:    'list',
+                name:    'id',
+                message: 'Run which task now?',
+                choices: tasks.map(t => ({
+                    name:  `[${t.id}] every ${t.interval} — "${t.prompt.slice(0, 40)}…"`,
+                    value: t.id,
+                })),
+            }])
+            const task = tasks.find(t => t.id === id)!
+            console.log(chalk.cyan(`  Running: "${task.prompt}"\n`))
+            await this.handleChat(task.prompt)
+            const all = loadTasks()
+            const stored = all.find(t => t.id === id)!
+            stored.lastRun = Date.now()
+            stored.nextRun = Date.now() + stored.intervalMs
+            saveTasks(all)
+        }
+
+        if (action === 'delete') {
+            if (tasks.length === 0) { console.log(chalk.dim('  No tasks.')); return }
+            const { id } = await inquirer.prompt([{
+                type:    'list',
+                name:    'id',
+                message: 'Delete which task?',
+                choices: tasks.map(t => ({
+                    name:  `[${t.id}] every ${t.interval} — "${t.prompt.slice(0, 40)}…"`,
+                    value: t.id,
+                })),
+            }])
+            const all = loadTasks().filter(t => t.id !== id)
+            saveTasks(all)
+            console.log(chalk.yellow(`  Task [${id}] deleted.`))
+        }
     }
 
     private async handleTelegramCommand() {
