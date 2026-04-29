@@ -22,7 +22,15 @@ interface MentisConfig {
         model?: string; // e.g. glm-4
         baseUrl?: string;
     };
-
+    anthropic?: {
+        apiKey?: string;
+        model?: string;
+    };
+    telegram?: {
+        botToken?: string;
+        allowedChatIds?: string;
+        autoApprove?: boolean;
+    };
 }
 
 export class ConfigManager {

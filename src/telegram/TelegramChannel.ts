@@ -77,8 +77,8 @@ function buildClient(): ModelClient {
   const provider = config.defaultProvider || 'ollama'
 
   if (provider === 'anthropic') {
-    const apiKey = (config as Record<string, unknown> & { anthropic?: { apiKey?: string; model?: string } }).anthropic?.apiKey || process.env.ANTHROPIC_API_KEY || ''
-    const model  = (config as Record<string, unknown> & { anthropic?: { apiKey?: string; model?: string } }).anthropic?.model  || 'claude-sonnet-4-6'
+    const apiKey = config.anthropic?.apiKey || process.env.ANTHROPIC_API_KEY || ''
+    const model  = config.anthropic?.model  || 'claude-sonnet-4-6'
     return new AnthropicClient(apiKey, model)
   }
 
@@ -212,9 +212,9 @@ export async function startCliTelegramChannel(
 ): Promise<void> {
   if (_running) { stopCliTelegramChannel(); await sleep(500) }
 
-  const cfgRaw = new ConfigManager().getConfig() as Record<string, unknown>
-  const tg     = (cfgRaw.telegram as Record<string, unknown>) || {}
-  const token  = (tg.botToken as string || '').trim()
+  const cfg   = new ConfigManager().getConfig()
+  const tg    = cfg.telegram || {}
+  const token = (tg.botToken || '').trim()
   if (!token) return
 
   _stop    = false

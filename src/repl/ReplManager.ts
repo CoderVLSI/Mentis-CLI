@@ -1181,8 +1181,8 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
     }
 
     private async handleTelegramCommand() {
-        const cfgRaw = this.configManager.getConfig() as Record<string, unknown>
-        const tg     = (cfgRaw.telegram as Record<string, unknown>) || {}
+        const cfg    = this.configManager.getConfig()
+        const tg     = cfg.telegram || {}
         const running = isCliTelegramRunning()
         const username = getCliBotUsername()
 
@@ -1192,8 +1192,8 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
         } else {
             console.log(chalk.dim('  ○ Not connected'))
         }
-        const currentToken   = (tg.botToken        as string || '')
-        const currentIds     = (tg.allowedChatIds   as string || '')
+        const currentToken   = tg.botToken       || ''
+        const currentIds     = tg.allowedChatIds  || ''
         const currentAuto    = Boolean(tg.autoApprove)
         if (currentToken) console.log(chalk.dim(`  Token: ${currentToken.slice(0, 8)}…`))
         if (currentIds)   console.log(chalk.dim(`  Allowed IDs: ${currentIds}`))
@@ -1226,8 +1226,8 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
                 mask:    '*',
                 default: currentToken,
             }])
-            const updated = { ...(cfgRaw.telegram as object || {}), botToken: value.trim() }
-            this.configManager.updateConfig({ telegram: updated } as Record<string, unknown>)
+            const updated = { ...tg, botToken: value.trim() }
+            this.configManager.updateConfig({ telegram: updated })
             console.log(chalk.green('  ✓ Token saved. Run /telegram → Start bot to connect.'))
         }
 
@@ -1238,32 +1238,31 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
                 message: 'Allowed chat IDs (comma-separated, empty = anyone):',
                 default: currentIds,
             }])
-            const updated = { ...(cfgRaw.telegram as object || {}), allowedChatIds: value.trim() }
-            this.configManager.updateConfig({ telegram: updated } as Record<string, unknown>)
+            const updated = { ...tg, allowedChatIds: value.trim() }
+            this.configManager.updateConfig({ telegram: updated })
             console.log(chalk.green('  ✓ Allowed IDs saved.'))
             console.log(chalk.dim('  Tip: message @userinfobot on Telegram to find your chat ID.'))
         }
 
         if (action === 'auto') {
             const newVal = !currentAuto
-            const updated = { ...(cfgRaw.telegram as object || {}), autoApprove: newVal }
-            this.configManager.updateConfig({ telegram: updated } as Record<string, unknown>)
+            const updated = { ...tg, autoApprove: newVal }
+            this.configManager.updateConfig({ telegram: updated })
             console.log(newVal
                 ? chalk.yellow('  ⚠ Auto-approve ON — agent can write files and run shell commands from Telegram.')
                 : chalk.green('  ✓ Auto-approve OFF — only read-only tools allowed from Telegram.'))
         }
 
         if (action === 'start') {
-            const freshCfg = this.configManager.getConfig() as Record<string, unknown>
-            const freshTg  = (freshCfg.telegram as Record<string, unknown>) || {}
-            const token    = (freshTg.botToken as string || '').trim()
+            const freshTg  = this.configManager.getConfig().telegram || {}
+            const token    = (freshTg.botToken || '').trim()
             if (!token) {
                 console.log(chalk.red('  No bot token set. Run /telegram → Set bot token first.'))
                 return
             }
             stopCliTelegramChannel()
             await new Promise(r => setTimeout(r, 400))
-            const rawIds    = (freshTg.allowedChatIds as string || '').split(',').map((s: string) => parseInt(s.trim(), 10)).filter((n: number) => !isNaN(n))
+            const rawIds    = (freshTg.allowedChatIds || '').split(',').map((s: string) => parseInt(s.trim(), 10)).filter((n: number) => !isNaN(n))
             const autoApprove = Boolean(freshTg.autoApprove)
             startCliTelegramChannel(rawIds, autoApprove, (text, fromName) => {
                 process.stdout.write(`\n${chalk.magenta(`[Telegram ${fromName}]`)} ${text}\n`)
@@ -1794,7 +1793,8 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
                 const cp = this.checkpointManager.load(name);
                 const timeAgo = cp ? relativeTime(cp.timestamp) : '';
                 const msgCount = cp?.history?.length || 0;
-                const preview = cp?.history?.find(m => m.role === 'user')?.content?.substring(0, 40)?.replace(/\n/g, ' ') || name;
+                const rawContent = cp?.history?.find(m => m.role === 'user')?.content
+                const preview = (typeof rawContent === 'string' ? rawContent.substring(0, 40).replace(/\n/g, ' ') : null) || name;
                 choices.push({
                     name: `${preview}${preview.length >= 40 ? '...' : ''} — ${timeAgo} · ${msgCount} msgs`,
                     value: { type: 'global', id: name }
@@ -1849,7 +1849,7 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
 
         // Re-display last assistant message if any
         const lastMsg = this.history[this.history.length - 1];
-        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.content) {
+        if (lastMsg && lastMsg.role === 'assistant' && typeof lastMsg.content === 'string' && lastMsg.content) {
             console.log(chalk.blue('\nLast response:'));
             const preview = lastMsg.content.length > 200
                 ? lastMsg.content.substring(0, 200) + '...'
@@ -2186,7 +2186,7 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
         const turns = this.history
             .filter(m => m.role === 'user' || m.role === 'assistant')
             .slice(-30) // last 30 turns max
-            .map(m => `${m.role.toUpperCase()}: ${(m.content ?? '').substring(0, 300)}`)
+            .map(m => `${m.role.toUpperCase()}: ${(typeof m.content === 'string' ? m.content : '').substring(0, 300)}`)
             .join('\n');
 
         const prompt = MemoryManager.extractionPrompt(turns);

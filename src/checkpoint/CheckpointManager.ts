@@ -115,7 +115,7 @@ export class CheckpointManager {
                     // Extract meaningful preview from LAST user message (to show current state)
                     const lastUserMsg = [...(data.history || [])].reverse().find(m => m.role === 'user');
                     let preview = 'No preview';
-                    if (lastUserMsg?.content) {
+                    if (lastUserMsg?.content && typeof lastUserMsg.content === 'string') {
                         let clean = lastUserMsg.content;
 
                         // 1. Remove Repository Structure (up to "User Question:")

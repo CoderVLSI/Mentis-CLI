@@ -114,11 +114,11 @@ async function main(): Promise<void> {
     }
 
     // Start Telegram channel in background if configured
-    const cfgRaw = new ConfigManager().getConfig() as Record<string, unknown>
-    const tg     = (cfgRaw.telegram as Record<string, unknown>) || {}
-    const tgToken = (tg.botToken as string || '').trim()
+    const cfg     = new ConfigManager().getConfig()
+    const tg      = cfg.telegram || {}
+    const tgToken = (tg.botToken || '').trim()
     if (tgToken) {
-        const rawIds     = (tg.allowedChatIds as string || '').split(',').map((s: string) => parseInt(s.trim(), 10)).filter((n: number) => !isNaN(n))
+        const rawIds     = (tg.allowedChatIds || '').split(',').map((s: string) => parseInt(s.trim(), 10)).filter((n: number) => !isNaN(n))
         const autoApprove = Boolean(tg.autoApprove)
         startCliTelegramChannel(rawIds, autoApprove, (text, fromName) => {
             // Print incoming Telegram message to the CLI terminal
