@@ -20,18 +20,28 @@ export class WebSearchTool implements Tool {
     /**
      * Execute search using a hybrid strategy:
      * 1. Tavily API (if configured) - Most Reliable
-     * 2. NPM/Expo Registry (if applicable) - Bypasses search engines
-     * 3. Google Curl - Mimics browser request
-     * 4. DuckDuckGo Lite - Low bandwidth fallback
-     * 5. DuckDuckScrape Library - Last resort
+     * 2. Serper API (if configured) - Google results via JSON
+     * 3. NPM/Expo Registry (if applicable) - Bypasses search engines
+     * 4. Google Curl - Mimics browser request
+     * 5. DuckDuckGo Lite - Low bandwidth fallback
+     * 6. DuckDuckScrape Library - Last resort
      */
     async execute(args: { query: string }): Promise<string> {
-        // 1. Try API Key (Most Reliable)
+        // 1. Try Tavily (Most Reliable)
         if (process.env.TAVILY_API_KEY) {
             try {
                 return await this.searchTavily(args.query, process.env.TAVILY_API_KEY);
             } catch (e) {
-                console.error(chalk.red('Tavily search failed, falling back to scraper.'));
+                console.error(chalk.red('Tavily search failed, falling back to Serper.'));
+            }
+        }
+
+        // 2. Try Serper (Google results via JSON API)
+        if (process.env.SERPER_API_KEY) {
+            try {
+                return await this.searchSerper(args.query, process.env.SERPER_API_KEY);
+            } catch (e) {
+                console.error(chalk.red('Serper search failed, falling back to scraper.'));
             }
         }
 
@@ -85,16 +95,44 @@ export class WebSearchTool implements Tool {
 
 Search engines are blocking automated requests from your network.
 
-To enable web search, get a free Tavily API key:
-  1. Go to https://tavily.com
-  2. Sign up for free
-  3. Add to your .env: TAVILY_API_KEY=your_key_here
+To enable reliable web search, set one of these API keys:
 
-Alternatively, use Exa via MCP:
-  1. Get key at https://exa.ai
-  2. Add EXA_API_KEY to .env
-  3. Run: /mcp connect "Exa Search"`;
+  Tavily (free 1000/mo):
+    1. Sign up at https://tavily.com
+    2. export TAVILY_API_KEY=your_key
+
+  Serper (free 2500/mo):
+    1. Sign up at https://serper.dev
+    2. export SERPER_API_KEY=your_key
+
+Alternatively via MCP: get a key at https://exa.ai, add EXA_API_KEY, then run /mcp.`;
         }
+    }
+
+    private async searchSerper(query: string, apiKey: string): Promise<string> {
+        console.log(chalk.dim(`  Searching Serper (Google) for: "${query}"...`));
+        const response = await fetch('https://google.serper.dev/search', {
+            method: 'POST',
+            headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ q: query, num: 5 }),
+        });
+        if (!response.ok) throw new Error(`Serper ${response.status}`);
+        const data = await response.json() as any;
+
+        const parts: string[] = [];
+
+        if (data.answerBox?.answer) {
+            parts.push(`**Answer:** ${data.answerBox.answer}\n`);
+        }
+
+        const organic: any[] = data.organic ?? [];
+        if (organic.length === 0) throw new Error('No results');
+
+        parts.push(organic.slice(0, 5).map((r: any) =>
+            `[${r.title}](${r.link})\n${r.snippet ?? ''}`
+        ).join('\n\n'));
+
+        return `Serper (Google) Results:\n\n${parts.join('\n')}`;
     }
 
     private formatResults(results: any[], source: string): string {
