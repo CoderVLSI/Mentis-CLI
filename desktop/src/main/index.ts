@@ -310,6 +310,11 @@ ipcMain.handle('telegram:get-status', () => ({
   botUsername: getTelegramBotUsername(),
 }))
 
+ipcMain.handle('telegram:stop', () => {
+  stopTelegramChannel()
+  return { ok: true }
+})
+
 // ── Terminal (node-pty) ───────────────────────────────────────────────────────
 ipcMain.handle('terminal:create', (_e, cols: number, rows: number) => {
   if (!pty) return { ok: false, error: 'node-pty unavailable' }

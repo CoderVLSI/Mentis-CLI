@@ -418,8 +418,8 @@ export default function SettingsModal({ onClose, onSaved }: Props) {
                   {tgStatus?.running && (
                     <button
                       onClick={async () => {
-                        await window.mentis.setTelegramConfig({ botToken: '', allowedChatIds: '', autoApprove: false })
-                        setTgToken(''); setTgAllowed(''); setTgStatus({ running: false, botUsername: '' })
+                        await window.mentis.stopTelegram()
+                        setTgStatus({ running: false, botUsername: '' })
                       }}
                       className="px-4 py-2 rounded-lg border border-red-800/50 text-red-400/70 hover:text-red-400 text-[12px] transition-colors"
                     >

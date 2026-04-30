@@ -472,10 +472,18 @@ export async function startCliTelegramChannel(
   console.log(`[telegram] Bot @${_username} connected`)
 
   const client = buildClient()
-  const tools  = buildTools(autoApprove)
-  let offset   = 0
+  let currentAutoApprove = autoApprove
+  let tools = buildTools(currentAutoApprove)
+  let offset = 0
 
   while (!_stop) {
+    // Re-read autoApprove from config each poll cycle so changes take effect without restart
+    const freshAutoApprove = Boolean(new ConfigManager().getConfig().telegram?.autoApprove)
+    if (freshAutoApprove !== currentAutoApprove) {
+      currentAutoApprove = freshAutoApprove
+      tools = buildTools(currentAutoApprove)
+    }
+
     try {
       const result = await tgCall(
         token, 'getUpdates',

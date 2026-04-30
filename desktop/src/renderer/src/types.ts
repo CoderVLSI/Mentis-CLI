@@ -137,6 +137,7 @@ declare global {
       getTelegramConfig: () => Promise<{ botToken: string; allowedChatIds: string; autoApprove: boolean }>
       setTelegramConfig: (s: { botToken: string; allowedChatIds: string; autoApprove: boolean }) => Promise<{ ok: boolean }>
       getTelegramStatus: () => Promise<{ running: boolean; botUsername: string }>
+      stopTelegram:      () => Promise<{ ok: boolean }>
 
       // Platform
       platform: string

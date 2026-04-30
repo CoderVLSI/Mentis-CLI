@@ -71,6 +71,7 @@ contextBridge.exposeInMainWorld('mentis', {
   setTelegramConfig: (s: { botToken: string; allowedChatIds: string; autoApprove: boolean }) =>
     ipcRenderer.invoke('telegram:set-config', s),
   getTelegramStatus: () => ipcRenderer.invoke('telegram:get-status'),
+  stopTelegram:      () => ipcRenderer.invoke('telegram:stop'),
 
   // Engine event subscriptions
   on: (channel: string, fn: (...args: unknown[]) => void) => {
