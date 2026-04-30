@@ -64,6 +64,46 @@ const HISTORY_FILE     = path.join(os.homedir(), '.mentis_history');
 const GLOBAL_SESS_DIR  = path.join(os.homedir(), '.mentis', 'sessions');
 const GLOBAL_SESS_IDX  = path.join(os.homedir(), '.mentis', 'sessions.json');
 
+// Env var names whose values must never reach the LLM
+const SENSITIVE_ENV_KEYS = new Set([
+    'TAVILY_API_KEY', 'SERPER_API_KEY',
+    'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY',
+    'EXA_API_KEY', 'GITHUB_PERSONAL_ACCESS_TOKEN',
+    'TELEGRAM_BOT_TOKEN',
+]);
+
+function maskConfigForDisplay(obj: any): any {
+    if (typeof obj !== 'object' || obj === null) return obj;
+    const out: any = Array.isArray(obj) ? [] : {};
+    for (const k of Object.keys(obj)) {
+        const lower = k.toLowerCase();
+        if (lower.includes('apikey') || lower.includes('api_key') || lower.includes('token') || lower.includes('secret')) {
+            const v = obj[k];
+            out[k] = v ? '***' + String(v).slice(-4) : v;
+        } else {
+            out[k] = maskConfigForDisplay(obj[k]);
+        }
+    }
+    return out;
+}
+
+function sanitizeForLlm(text: string): string {
+    // Redact values of known sensitive env vars that might appear in tool output
+    let out = text;
+    for (const key of SENSITIVE_ENV_KEYS) {
+        const val = process.env[key];
+        if (val && val.length > 8) {
+            out = out.split(val).join('[REDACTED]');
+        }
+    }
+    // Redact common API key patterns (long alphanumeric tokens)
+    // tvly-... (Tavily), sk-... (OpenAI), AIza... (Google), etc.
+    out = out.replace(/\b(tvly-[A-Za-z0-9_-]{20,})/g, '[REDACTED]');
+    out = out.replace(/\b(sk-[A-Za-z0-9_-]{20,})/g, '[REDACTED]');
+    out = out.replace(/\b(AIza[A-Za-z0-9_-]{30,})/g, '[REDACTED]');
+    return out;
+}
+
 interface GlobalSessionMeta {
     id: string; title: string; createdAt: number; updatedAt: number; messageCount: number; source?: string;
 }
@@ -1067,7 +1107,7 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
                         role: 'tool',
                         tool_call_id: toolCall.id,
                         name: toolName,
-                        content: result
+                        content: sanitizeForLlm(result)
                     });
                 }
 
@@ -1167,7 +1207,7 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
         if (action === 'Back') return;
 
         if (action === 'Show Current Configuration') {
-            console.log(JSON.stringify(config, null, 2));
+            console.log(JSON.stringify(maskConfigForDisplay(config), null, 2));
             return;
         }
 
