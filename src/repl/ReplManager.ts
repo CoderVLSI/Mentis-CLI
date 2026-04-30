@@ -1158,6 +1158,7 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
                     'Set Active Provider',
                     'Set API Key (for active provider)',
                     'Set Base URL (for active provider)',
+                    'Web Search Keys (Tavily / Serper)',
                     'Back'
                 ]
             }
@@ -1219,6 +1220,64 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
             console.log(chalk.green(`Base URL updated for ${currentProvider}.`));
             this.initializeClient();
         }
+
+        if (action === 'Web Search Keys (Tavily / Serper)') {
+            await this.handleSearchKeysConfig();
+        }
+    }
+
+    private async handleSearchKeysConfig() {
+        const config = this.configManager.getConfig();
+        const current = config.searchKeys ?? {};
+
+        const tavilyMasked = current.tavilyApiKey ? '***' + current.tavilyApiKey.slice(-4) : chalk.dim('not set');
+        const serperMasked = current.serperApiKey ? '***' + current.serperApiKey.slice(-4) : chalk.dim('not set');
+
+        console.log('');
+        console.log(chalk.cyan('  Web Search Keys'));
+        console.log(chalk.dim('  Keys are saved to ~/.mentisrc and loaded as env vars on startup.'));
+        console.log(`  Tavily : ${tavilyMasked}  ${chalk.dim('(free 1000/mo — tavily.com)')}`);
+        console.log(`  Serper : ${serperMasked}  ${chalk.dim('(free 2500/mo — serper.dev)')}`);
+        console.log('');
+
+        const { key } = await inquirer.prompt([{
+            type: 'list',
+            name: 'key',
+            message: 'Which key to set?',
+            prefix: '',
+            choices: [
+                { name: 'Tavily API Key', value: 'tavily' },
+                { name: 'Serper API Key', value: 'serper' },
+                { name: 'Back', value: 'back' },
+            ],
+        }]);
+
+        if (key === 'back') return;
+
+        const label = key === 'tavily' ? 'Tavily' : 'Serper';
+        const { value } = await inquirer.prompt([{
+            type: 'password',
+            name: 'value',
+            message: `Enter ${label} API Key:`,
+            mask: '*',
+        }]);
+
+        if (!value?.trim()) {
+            console.log(chalk.yellow('  No value entered, key unchanged.'));
+            return;
+        }
+
+        const searchKeys = { ...current };
+        if (key === 'tavily') {
+            searchKeys.tavilyApiKey = value.trim();
+            process.env.TAVILY_API_KEY = value.trim();
+        } else {
+            searchKeys.serperApiKey = value.trim();
+            process.env.SERPER_API_KEY = value.trim();
+        }
+
+        this.configManager.updateConfig({ searchKeys });
+        console.log(chalk.green(`  ✓ ${label} API key saved.`));
     }
 
     private async handleGitCommand() {

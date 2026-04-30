@@ -32,6 +32,10 @@ interface MentisConfig {
         autoApprove?: boolean;
     };
     autoApprove?: boolean;   // persist --yolo across sessions
+    searchKeys?: {
+        tavilyApiKey?: string;
+        serperApiKey?: string;
+    };
 }
 
 export class ConfigManager {
@@ -65,6 +69,14 @@ export class ConfigManager {
         } catch (error) {
             console.error('Error loading config:', error);
         }
+        this.applySearchKeys();
+    }
+
+    private applySearchKeys() {
+        const keys = this.config.searchKeys;
+        if (!keys) return;
+        if (keys.tavilyApiKey && !process.env.TAVILY_API_KEY) process.env.TAVILY_API_KEY = keys.tavilyApiKey;
+        if (keys.serperApiKey && !process.env.SERPER_API_KEY) process.env.SERPER_API_KEY = keys.serperApiKey;
     }
 
     public saveConfig() {
