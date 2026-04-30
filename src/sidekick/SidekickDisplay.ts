@@ -3,7 +3,7 @@
  */
 
 import chalk, { ChalkInstance } from 'chalk';
-import { Sidekick, Rarity, Mood, StatKey } from './SidekickTypes';
+import { Sidekick, Rarity, Mood, StatKey, EvolutionStage, evolutionLabel } from './SidekickTypes';
 import { getArt } from './SidekickArt';
 
 const RARITY_COLORS: Record<Rarity, ChalkInstance> = {
@@ -32,11 +32,19 @@ const MOOD_EMOJI: Record<Mood, string> = {
     hyped:    '🔥',
 };
 
+function stageTag(stage: EvolutionStage): string {
+    if (stage === 0) return chalk.dim(' [proto]')
+    if (stage === 2) return chalk.magentaBright(' [arch ✦]')
+    return ''
+}
+
 /** Compact one-line banner shown at session start */
 export function renderBanner(s: Sidekick): void {
     const rarityColor = RARITY_COLORS[s.rarity];
     const moodColor = MOOD_COLORS[s.mood];
     const shiny = s.isShiny ? chalk.yellow(' ★ SHINY') : '';
+    const stage = (s.evolutionStage ?? 0) as EvolutionStage
+    const speciesLabel = evolutionLabel(s.species, stage)
 
     console.log(
         chalk.dim('  ┌─ sidekick ') +
@@ -46,11 +54,36 @@ export function renderBanner(s: Sidekick): void {
     );
     console.log(
         `  │  ${chalk.bold(s.name)} ` +
-        chalk.dim(`the ${s.species}`) +
+        chalk.dim(`the ${speciesLabel}`) +
+        stageTag(stage) +
         `  lv.${chalk.cyan(s.level)}  ` +
         moodColor(`${MOOD_EMOJI[s.mood]} ${s.mood}`)
     );
     console.log(chalk.dim('  └────────────────────────────────────'));
+}
+
+/** Full-screen evolution animation */
+export function renderEvolution(s: Sidekick, newStage: EvolutionStage): void {
+    const oldLabel = evolutionLabel(s.species, (newStage - 1) as EvolutionStage)
+    const newLabel = evolutionLabel(s.species, newStage)
+    const frames = ['◌', '○', '◎', '●', '◉', '✦', '★']
+
+    console.log('')
+    console.log(chalk.yellow('  ╔══════════════════════════════════════╗'))
+    console.log(chalk.yellow('  ║       ✦  EVOLUTION  ✦               ║'))
+    console.log(chalk.yellow('  ╚══════════════════════════════════════╝'))
+    console.log('')
+    for (const f of frames) {
+        process.stdout.write(`\r  ${chalk.yellow(f.repeat(5))}  ${chalk.bold(s.name)} is evolving…  ${chalk.yellow(f.repeat(5))}`)
+    }
+    console.log('')
+    console.log('')
+    console.log(
+        `  ${chalk.dim(oldLabel)}  ${chalk.yellow('→')}  ${chalk.bold.magentaBright(newLabel)}  ` +
+        (newStage === 2 ? chalk.yellow('✦ ARCH FORM') : chalk.cyan('✦ EVOLVED'))
+    )
+    console.log(chalk.dim(`  All stats +10  |  lv.${s.level}`))
+    console.log('')
 }
 
 /** Full stats card — shown by /sidekick card */
@@ -58,6 +91,8 @@ export function renderCard(s: Sidekick): void {
     const rarityColor = RARITY_COLORS[s.rarity];
     const art = getArt(s.species, s.isShiny);
     const shiny = s.isShiny ? chalk.yellow(' ★ SHINY') : '';
+    const stage = (s.evolutionStage ?? 0) as EvolutionStage
+    const speciesLabel = evolutionLabel(s.species, stage)
     const border = '═'.repeat(38);
 
     console.log('');
@@ -85,7 +120,7 @@ export function renderCard(s: Sidekick): void {
 
         let statLine = '';
         if (i === 0) {
-            statLine = chalk.dim(`Species  : `) + chalk.cyan(s.species);
+            statLine = chalk.dim(`Species  : `) + chalk.cyan(speciesLabel) + stageTag(stage);
         } else if (i === 1) {
             statLine = chalk.dim(`Affinity : `) + chalk.green(s.languageAffinity);
         } else {

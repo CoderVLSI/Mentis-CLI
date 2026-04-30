@@ -30,6 +30,21 @@ export interface SidekickStats {
     TOKEN_WISDOM: number;
 }
 
+// Evolution: 0 = basic (proto-), 1 = standard, 2 = apex (arch-)
+export type EvolutionStage = 0 | 1 | 2
+
+export const EVOLUTION_LEVELS: Record<EvolutionStage, number> = {
+    0: 0,
+    1: 10,   // evolves at level 10
+    2: 25,   // evolves at level 25
+}
+
+export function evolutionLabel(species: Species, stage: EvolutionStage): string {
+    if (stage === 0) return `proto-${species}`
+    if (stage === 2) return `arch-${species}`
+    return species
+}
+
 export interface Sidekick {
     id: string;
     species: Species;
@@ -47,6 +62,8 @@ export interface Sidekick {
     languageAffinity: string;
     peakStat: StatKey;
     dumpStat: StatKey;
+    evolutionStage: EvolutionStage;
+    totalInteractions: number;
 }
 
 /** Per-session activity counters fed into mood calculation */

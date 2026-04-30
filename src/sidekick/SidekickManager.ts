@@ -15,7 +15,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import os from 'os';
 import chalk from 'chalk';
-import { Sidekick, Mood, SessionActivity } from './SidekickTypes';
+import { Sidekick, Mood, SessionActivity, EvolutionStage, EVOLUTION_LEVELS, evolutionLabel } from './SidekickTypes';
 import { generateSidekick } from './SidekickGenerator';
 
 const SIDEKICK_PATH = path.join(os.homedir(), '.mentis', 'sidekick.json');
@@ -80,6 +80,33 @@ export class SidekickManager {
         return this.sidekick;
     }
 
+    /** Increment interaction count and check for evolution. Returns true if evolved. */
+    recordInteraction(): boolean {
+        if (!this.sidekick) return false
+        this.sidekick.totalInteractions = (this.sidekick.totalInteractions ?? 0) + 1
+        const evolved = this.checkEvolution()
+        this.save()
+        return evolved
+    }
+
+    /** Check if the sidekick should evolve based on current level. Returns true if it did. */
+    private checkEvolution(): boolean {
+        if (!this.sidekick) return false
+        const stage = (this.sidekick.evolutionStage ?? 0) as EvolutionStage
+        if (stage >= 2) return false
+
+        const nextStage = (stage + 1) as EvolutionStage
+        if (this.sidekick.level < EVOLUTION_LEVELS[nextStage]) return false
+
+        // Evolve!
+        this.sidekick.evolutionStage = nextStage
+        // Boost all stats by 10 on evolution
+        for (const key of Object.keys(this.sidekick.stats) as Array<keyof typeof this.sidekick.stats>) {
+            this.sidekick.stats[key] = Math.min(100, this.sidekick.stats[key] + 10)
+        }
+        return true
+    }
+
     /** Record a tool call result for mood calculation */
     recordToolCall(isError: boolean): void {
         this.activity.toolCalls++;
@@ -137,6 +164,9 @@ export class SidekickManager {
             this.sidekick.level++;
         }
 
+        // Check evolution after levelling up
+        this.checkEvolution()
+
         // Streak: increment if last seen was yesterday, reset if gap > 1 day
         const lastSeen = new Date(this.sidekick.lastSeen);
         const today = new Date();
@@ -151,6 +181,17 @@ export class SidekickManager {
         }
 
         this.save();
+    }
+
+    /** Human-readable species label including evolution stage */
+    speciesLabel(): string {
+        if (!this.sidekick) return ''
+        const stage = (this.sidekick.evolutionStage ?? 0) as EvolutionStage
+        return evolutionLabel(this.sidekick.species, stage)
+    }
+
+    evolutionStage(): EvolutionStage {
+        return (this.sidekick?.evolutionStage ?? 0) as EvolutionStage
     }
 
     /** Mood emoji for inline display */

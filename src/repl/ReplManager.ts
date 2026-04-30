@@ -52,7 +52,7 @@ import { SidekickTool } from '../tools/SidekickTool';
 import { ComputerUseTool } from '../tools/ComputerUseTool';
 import { AnthropicClient } from '../llm/AnthropicClient';
 import { SidekickManager } from '../sidekick/SidekickManager';
-import { renderBanner, renderCard, renderInteraction } from '../sidekick/SidekickDisplay';
+import { renderBanner, renderCard, renderInteraction, renderEvolution } from '../sidekick/SidekickDisplay';
 import { MemoryManager } from '../memory/MemoryManager';
 import { startCliTelegramChannel, stopCliTelegramChannel, isCliTelegramRunning, getCliBotUsername, broadcastToActiveTelegramChats } from '../telegram/TelegramChannel'
 import { Scheduler, loadTasks, saveTasks, parseInterval, ScheduledTask } from '../scheduler/Scheduler'
@@ -494,6 +494,15 @@ export class ReplManager {
 
             await this.handleChat(input);
             this.syncGlobalSession();
+
+            // Sidekick evolution check after each interaction
+            if (this.sidekickManager.isHatched()) {
+                const evolved = this.sidekickManager.recordInteraction()
+                if (evolved) {
+                    const s = this.sidekickManager.get()!
+                    renderEvolution(s, this.sidekickManager.evolutionStage())
+                }
+            }
         }
     }
 

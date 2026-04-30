@@ -172,5 +172,7 @@ export function generateSidekick(): Omit<Sidekick, 'name' | 'personality'> & { n
         streak: 0,
         lastSeen: now,
         hatchedAt: now,
+        evolutionStage: 0,
+        totalInteractions: 0,
     };
 }
