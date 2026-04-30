@@ -31,6 +31,7 @@ interface MentisConfig {
         allowedChatIds?: string;
         autoApprove?: boolean;
     };
+    autoApprove?: boolean;   // persist --yolo across sessions
 }
 
 export class ConfigManager {

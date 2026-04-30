@@ -105,6 +105,7 @@ const ALL_COMMANDS = [
     { value: '/schedule', name: '/schedule     Manage scheduled agent tasks (cron)' },
     { value: '/webhook',  name: '/webhook      Start an HTTP server to trigger agent via POST' },
     { value: '/agents',   name: '/agents       List agents, spawn one ad-hoc, or create custom' },
+    { value: '/trust',    name: '/trust        Toggle auto-approve all tools (persists across restarts)' },
     { value: '/exit',     name: '/exit         Save session & exit' },
 ];
 
@@ -182,10 +183,15 @@ export class ReplManager {
         this.instructionsLoader = new InstructionsLoader();
         this.projectInstructions = this.instructionsLoader.load();
         this.hooksManager = new HooksManager(this.settingsManager.getHooks());
+        // Merge config-level autoApprove with --yolo flag
+        const cfgAutoApprove = Boolean(this.configManager.getConfig().autoApprove)
+        if (cfgAutoApprove) options.yolo = true
         this.permissionManager = new PermissionManager(
             this.settingsManager.getPermissions(),
             options.yolo
         );
+        // Pre-populate session allow-all if yolo/autoApprove is active
+        if (options.yolo) this.sessionAllowedTools.add('*')
 
         // Create tools array without skill tools first
         this.tools = [
@@ -690,6 +696,9 @@ export class ReplManager {
                 break;
             case '/agents':
                 await this.handleAgentsCommand();
+                break;
+            case '/trust':
+                await this.handleTrustCommand();
                 break;
             case '/memory':
                 await this.handleMemoryCommand(args);
@@ -1393,6 +1402,22 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
         const outPath = path.resolve(process.cwd(), filename.trim() || defaultName);
         fs.writeFileSync(outPath, lines.join('\n'));
         console.log(chalk.green(`  ✓ Session exported to ${outPath}`));
+    }
+
+    private async handleTrustCommand() {
+        const current = Boolean(this.configManager.getConfig().autoApprove)
+        const next    = !current
+        this.configManager.updateConfig({ autoApprove: next })
+        if (next) {
+            this.sessionAllowedTools.add('*')
+            this.options.yolo = true
+            console.log(chalk.green('\n  ✓ Auto-approve ON — all tool calls will be approved automatically.'))
+            console.log(chalk.yellow('  ⚠ This persists across restarts. Run /trust again to turn off.\n'))
+        } else {
+            this.sessionAllowedTools.delete('*')
+            this.options.yolo = false
+            console.log(chalk.yellow('\n  Auto-approve OFF — tool calls will require confirmation again.\n'))
+        }
     }
 
     private async handleAgentsCommand() {
@@ -2647,7 +2672,12 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
 
         return new Promise<boolean>((resolve) => {
             try { process.stdin.resume(); } catch {}
-            const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+            // Drain any buffered keypresses (e.g. stale Escape) so they don't
+            // immediately close the readline interface or trigger abort.
+            if (process.stdin.isTTY) {
+                try { (process.stdin as any).read(); } catch {}
+            }
+            const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: false })
             rl.question(chalk.cyan('  Choose (1-5, Enter = Yes): '), (answer) => {
                 rl.close();
                 const n = parseInt(answer.trim() || '1', 10);
