@@ -31,6 +31,7 @@ import { ProjectInitializer } from '../utils/ProjectInitializer';
 import { ConversationCompacter } from '../utils/ConversationCompacter';
 import { CommandManager } from '../commands/CommandManager';
 import { SlashCommandTool, ListCommandsTool } from '../commands/SlashCommandTool';
+import { ALL_COMMANDS } from '../commands/commandList';
 import * as readline from 'readline';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -78,36 +79,6 @@ function saveGlobalIndex(index: GlobalSessionMeta[]): void {
     } catch {}
 }
 
-const ALL_COMMANDS = [
-    { value: '/help',     name: '/help         Show all available commands' },
-    { value: '/model',    name: '/model        Switch AI provider & model' },
-    { value: '/config',   name: '/config       Configure API keys & settings' },
-    { value: '/clear',    name: '/clear        Clear chat history & context' },
-    { value: '/sidekick', name: '/sidekick     Manage your sidekick companion' },
-    { value: '/memory',   name: '/memory       View & manage persistent memory' },
-    { value: '/init',     name: '/init         Initialize project with .mentis.md' },
-    { value: '/plan',     name: '/plan [task]  Ask questions → plan → /build to implement' },
-    { value: '/build',   name: '/build        Execute the agreed plan' },
-    { value: '/mcp',      name: '/mcp          Manage MCP servers' },
-    { value: '/add',      name: '/add <file>   Add file to context' },
-    { value: '/image',    name: '/image <path> Attach image to next message (multimodal)' },
-    { value: '/drop',     name: '/drop <file>  Remove file from context' },
-    { value: '/resume',   name: '/resume       Resume last session' },
-    { value: '/search',   name: '/search       Search codebase' },
-    { value: '/run',      name: '/run <cmd>    Run shell command' },
-    { value: '/commit',   name: '/commit       Git commit all changes' },
-    { value: '/skills',   name: '/skills       Manage agent skills' },
-    { value: '/commands', name: '/commands     Manage custom slash commands' },
-    { value: '/status',   name: '/status       Show session status' },
-    { value: '/telegram', name: '/telegram     Configure and manage the Telegram bot channel' },
-    { value: '/git',      name: '/git          Interactive git workflow (stage, diff, commit, push)' },
-    { value: '/share',    name: '/share        Export session as markdown file' },
-    { value: '/schedule', name: '/schedule     Manage scheduled agent tasks (cron)' },
-    { value: '/webhook',  name: '/webhook      Start an HTTP server to trigger agent via POST' },
-    { value: '/agents',   name: '/agents       List agents, spawn one ad-hoc, or create custom' },
-    { value: '/trust',    name: '/trust        Toggle auto-approve all tools (persists across restarts)' },
-    { value: '/exit',     name: '/exit         Save session & exit' },
-];
 
 export interface CliOptions {
     resume: boolean;

@@ -4,42 +4,14 @@
 
 import readline from 'readline';
 import chalk from 'chalk';
+import { COMMAND_LIST } from '../commands/commandList';
 
 export interface InputBoxOptions {
     showHint?: boolean;
     hint?: string;
 }
 
-export const COMMANDS: { cmd: string; desc: string }[] = [
-    { cmd: '/help',     desc: 'Show all available commands' },
-    { cmd: '/model',    desc: 'Switch AI provider & model' },
-    { cmd: '/config',   desc: 'Configure API keys & settings' },
-    { cmd: '/clear',    desc: 'Clear chat history & context' },
-    { cmd: '/sidekick', desc: 'Manage your sidekick companion' },
-    { cmd: '/memory',   desc: 'View & manage persistent memory' },
-    { cmd: '/init',     desc: 'Initialize project with .mentis.md' },
-    { cmd: '/plan',     desc: 'Ask questions → plan → /build to implement' },
-    { cmd: '/build',    desc: 'Execute the agreed plan' },
-    { cmd: '/mcp',      desc: 'Manage MCP servers' },
-    { cmd: '/add',      desc: 'Add file to context' },
-    { cmd: '/image',    desc: 'Attach image to next message' },
-    { cmd: '/drop',     desc: 'Remove file from context' },
-    { cmd: '/resume',   desc: 'Resume last session' },
-    { cmd: '/search',   desc: 'Search codebase' },
-    { cmd: '/run',      desc: 'Run shell command' },
-    { cmd: '/commit',   desc: 'Git commit all changes' },
-    { cmd: '/skills',   desc: 'Manage agent skills' },
-    { cmd: '/commands', desc: 'Manage custom slash commands' },
-    { cmd: '/status',   desc: 'Show session status' },
-    { cmd: '/telegram', desc: 'Configure and manage the Telegram bot channel' },
-    { cmd: '/git',      desc: 'Interactive git workflow (stage, diff, commit, push)' },
-    { cmd: '/share',    desc: 'Export session as markdown file' },
-    { cmd: '/schedule', desc: 'Manage scheduled agent tasks (cron)' },
-    { cmd: '/webhook',  desc: 'Start an HTTP server to trigger agent via POST' },
-    { cmd: '/agents',   desc: 'List agents, spawn one ad-hoc, or create custom' },
-    { cmd: '/trust',    desc: 'Toggle auto-approve all tools (persists across restarts)' },
-    { cmd: '/exit',     desc: 'Save session & exit' },
-];
+export const COMMANDS = COMMAND_LIST;
 
 const CMD_NAMES = COMMANDS.map(c => c.cmd);
 
