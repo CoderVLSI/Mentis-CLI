@@ -4,10 +4,10 @@ import {
   SafeAreaView, Share, StyleSheet, Text, TouchableOpacity, View,
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
-import { useChat, useSettings, Message, Mode } from '../../store'
+import { useChat, useSettings, Message } from '../../store'
 import { streamAnthropicChat } from '../../services/anthropicClient'
 import { streamChat, newSession } from '../../services/mentisClient'
-import { speak, stopSpeaking } from '../../services/tts'
+import { useVoice } from '../../hooks/useVoice'
 import ChatBubble from '../../components/ChatBubble'
 import ChatInput from '../../components/ChatInput'
 import ThinkingDot from '../../components/ThinkingDot'
@@ -24,18 +24,11 @@ export default function ChatScreen() {
   const [error, setError]                     = useState<string | null>(null)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const [drawerOpen, setDrawerOpen]           = useState(false)
-  const [voiceMode, setVoiceMode]             = useState(false)
-  const [speaking, setSpeaking]               = useState(false)
-  const voiceModeRef = useRef(false)
-  const textBuffer   = useRef('')          // accumulates streaming text for TTS
-  const pendingId    = useRef<string | null>(null)
+  const pendingId = useRef<string | null>(null)
 
-  const toggleVoice = () => {
-    const next = !voiceMode
-    setVoiceMode(next)
-    voiceModeRef.current = next
-    if (!next) { stopSpeaking(); setSpeaking(false) }
-  }
+  // Stable ref wrapper so useVoice can call send before it's defined
+  const sendRef = useRef<(text: string) => void>(() => {})
+  const voice   = useVoice({ onTranscript: useCallback((t: string) => sendRef.current(t), []) })
 
   const startNewChat = useCallback(async () => {
     chat.clearChat()
@@ -68,7 +61,6 @@ export default function ChatScreen() {
     if (handleSlash(text)) return
     setError(null)
     chat.setThinking(true)
-    textBuffer.current = ''
 
     chat.addMessage({ id: `u${Date.now()}`, role: 'user', content: text, timestamp: Date.now() })
     scrollToEnd()
@@ -78,7 +70,7 @@ export default function ChatScreen() {
     scrollToEnd()
 
     const onChunk = (chunk: string) => {
-      textBuffer.current += chunk
+      voice.onStreamChunk(chunk)
       chat.appendChunk(id, chunk)
       chat.setStreaming(true)
       chat.setThinking(false)
@@ -89,11 +81,7 @@ export default function ChatScreen() {
       chat.setStreaming(false)
       chat.setThinking(false)
       pendingId.current = null
-      if (voiceModeRef.current && textBuffer.current) {
-        setSpeaking(true)
-        speak(textBuffer.current, () => setSpeaking(false))
-      }
-      textBuffer.current = ''
+      voice.onStreamDone()
     }
 
     const onError = (err: string) => {
@@ -101,7 +89,6 @@ export default function ChatScreen() {
       chat.setStreaming(false)
       chat.setThinking(false)
       pendingId.current = null
-      textBuffer.current = ''
     }
 
     if (settings.syncMode === 'desktop') {
@@ -117,6 +104,9 @@ export default function ChatScreen() {
       )
     }
   }, [chat, settings])
+
+  // Keep ref current so voice hook can always call the latest send
+  sendRef.current = send
 
   const cancel = () => {
     abortRef.current?.abort()
@@ -157,7 +147,6 @@ export default function ChatScreen() {
         </View>
 
         <View style={styles.headerRight}>
-          {/* Mode toggle */}
           <TouchableOpacity
             style={[styles.badge, chat.mode === 'PLAN' ? styles.badgePlan : styles.badgeBuild]}
             onPress={toggleMode}
@@ -167,7 +156,6 @@ export default function ChatScreen() {
             </Text>
           </TouchableOpacity>
 
-          {/* Model selector */}
           <TouchableOpacity style={styles.modelBtn} onPress={() => setModelPickerOpen(true)}>
             <Text style={styles.modelText} numberOfLines={1}>
               {settings.model.replace('claude-', '').replace('-4-7', ' Opus').replace('-4-6', ' Sonnet').replace('-4-5-20251001', ' Haiku')}
@@ -175,26 +163,23 @@ export default function ChatScreen() {
             <Text style={styles.modelChevron}>▾</Text>
           </TouchableOpacity>
 
-          {/* Voice mode toggle */}
           <TouchableOpacity
-            style={[styles.iconBtn, voiceMode && styles.iconBtnVoiceActive]}
-            onPress={toggleVoice}
+            style={[styles.iconBtn, voice.voiceMode && styles.iconBtnVoiceActive]}
+            onPress={voice.toggleVoice}
           >
             <Ionicons
-              name={voiceMode ? 'volume-high' : 'volume-mute-outline'}
+              name={voice.voiceMode ? 'volume-high' : 'volume-mute-outline'}
               size={15}
-              color={voiceMode ? C.accentL : C.muted2}
+              color={voice.voiceMode ? C.accentL : C.muted2}
             />
           </TouchableOpacity>
 
-          {/* Export */}
           {chat.feed.length > 0 && (
             <TouchableOpacity style={styles.iconBtn} onPress={exportChat}>
               <Text style={styles.iconBtnText}>↑</Text>
             </TouchableOpacity>
           )}
 
-          {/* Clear */}
           {chat.feed.length > 0 && (
             <TouchableOpacity
               style={styles.iconBtn}
@@ -209,19 +194,17 @@ export default function ChatScreen() {
         </View>
       </View>
 
-      {/* Sync badge */}
       {settings.syncMode === 'desktop' && (
         <View style={styles.syncBar}>
           <Text style={styles.syncText}>⬡ Synced with desktop — {settings.desktopHost}</Text>
         </View>
       )}
 
-      {/* Speaking indicator */}
-      {speaking && (
+      {voice.speaking && (
         <View style={styles.speakingBar}>
           <Ionicons name="volume-high" size={12} color={C.accentL} />
           <Text style={styles.speakingText}>  Speaking…</Text>
-          <TouchableOpacity onPress={() => { stopSpeaking(); setSpeaking(false) }}>
+          <TouchableOpacity onPress={voice.stopSpeaking}>
             <Text style={styles.speakingStop}>  Stop ■</Text>
           </TouchableOpacity>
         </View>
@@ -248,7 +231,7 @@ export default function ChatScreen() {
               : <ChatBubble message={item.data} isStreaming={item.data.id === pendingId.current && chat.streaming} />
           }
           contentContainerStyle={styles.feedContent}
-          ListEmptyComponent={<EmptyState voiceMode={voiceMode} />}
+          ListEmptyComponent={<EmptyState voiceMode={voice.voiceMode} />}
           onContentSizeChange={scrollToEnd}
           maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         />
@@ -259,7 +242,13 @@ export default function ChatScreen() {
           </TouchableOpacity>
         )}
 
-        <ChatInput onSend={send} onCancel={cancel} streaming={chat.streaming || chat.thinking} />
+        <ChatInput
+          onSend={send}
+          onCancel={cancel}
+          streaming={chat.streaming || chat.thinking}
+          voiceListening={voice.listening}
+          onMicPress={voice.onMicPress}
+        />
       </KeyboardAvoidingView>
 
       <ModelPicker visible={modelPickerOpen} onClose={() => setModelPickerOpen(false)} />

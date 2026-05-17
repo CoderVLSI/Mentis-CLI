@@ -1,23 +1,18 @@
-import React, { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { Animated, StyleSheet, TouchableOpacity } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
-import {
-  ExpoSpeechRecognitionModule,
-  useSpeechRecognitionEvent,
-} from 'expo-speech-recognition'
 import { C } from '../constants/theme'
 
 interface Props {
-  onTranscript: (text: string) => void
-  disabled?:    boolean
+  listening: boolean
+  onPress:   () => void
+  disabled?: boolean
 }
 
-export default function VoiceButton({ onTranscript, disabled }: Props) {
-  const [listening, setListening] = useState(false)
-  const pulse    = useRef(new Animated.Value(1)).current
-  const loopRef  = useRef<Animated.CompositeAnimation | null>(null)
+export default function VoiceButton({ listening, onPress, disabled }: Props) {
+  const pulse   = useRef(new Animated.Value(1)).current
+  const loopRef = useRef<Animated.CompositeAnimation | null>(null)
 
-  // Pulse ring animation while mic is active
   useEffect(() => {
     if (listening) {
       loopRef.current = Animated.loop(
@@ -33,37 +28,8 @@ export default function VoiceButton({ onTranscript, disabled }: Props) {
     }
   }, [listening])
 
-  useSpeechRecognitionEvent('result', (event) => {
-    if (event.isFinal) {
-      const transcript = event.results[event.results.length - 1]?.transcript ?? ''
-      if (transcript.trim()) {
-        onTranscript(transcript.trim())
-        setListening(false)
-      }
-    }
-  })
-  useSpeechRecognitionEvent('end',   () => setListening(false))
-  useSpeechRecognitionEvent('error', () => setListening(false))
-
-  const toggle = async () => {
-    if (disabled) return
-    if (listening) {
-      ExpoSpeechRecognitionModule.stop()
-      setListening(false)
-    } else {
-      const { granted } = await ExpoSpeechRecognitionModule.requestPermissionsAsync()
-      if (!granted) return
-      ExpoSpeechRecognitionModule.start({
-        lang: 'en-US',
-        interimResults: false,
-        continuous: false,
-      })
-      setListening(true)
-    }
-  }
-
   return (
-    <TouchableOpacity style={styles.btn} onPress={toggle} disabled={disabled}>
+    <TouchableOpacity style={styles.btn} onPress={onPress} disabled={disabled}>
       {listening && (
         <Animated.View style={[styles.ring, { transform: [{ scale: pulse }] }]} />
       )}
