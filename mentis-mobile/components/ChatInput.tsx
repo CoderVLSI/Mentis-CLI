@@ -4,6 +4,7 @@ import {
   Text, TextInput, TouchableOpacity, View,
 } from 'react-native'
 import { C } from '../constants/theme'
+import VoiceButton from './VoiceButton'
 
 const SLASH_COMMANDS = [
   { cmd: '/plan',   desc: 'Switch to PLAN mode'   },
@@ -20,15 +21,14 @@ interface Props {
 }
 
 export default function ChatInput({ onSend, onCancel, streaming }: Props) {
-  const [text, setText]         = useState('')
+  const [text, setText]               = useState('')
   const [suggestions, setSuggestions] = useState<typeof SLASH_COMMANDS>([])
   const inputRef = useRef<TextInput>(null)
 
   const handleChange = (val: string) => {
     setText(val)
     if (val.startsWith('/')) {
-      const filtered = SLASH_COMMANDS.filter(c => c.cmd.startsWith(val.toLowerCase()))
-      setSuggestions(filtered)
+      setSuggestions(SLASH_COMMANDS.filter(c => c.cmd.startsWith(val.toLowerCase())))
     } else {
       setSuggestions([])
     }
@@ -40,8 +40,8 @@ export default function ChatInput({ onSend, onCancel, streaming }: Props) {
     inputRef.current?.focus()
   }
 
-  const submit = () => {
-    const t = text.trim()
+  const submit = (override?: string) => {
+    const t = (override ?? text).trim()
     if (!t || streaming) return
     setText('')
     setSuggestions([])
@@ -49,9 +49,16 @@ export default function ChatInput({ onSend, onCancel, streaming }: Props) {
     onSend(t)
   }
 
+  // Voice transcript → auto-send immediately (hands-free feel)
+  const handleTranscript = (transcript: string) => {
+    if (streaming) return
+    setText(transcript)
+    // Small delay so user sees what was heard before it sends
+    setTimeout(() => submit(transcript), 400)
+  }
+
   return (
     <View style={styles.wrapper}>
-      {/* Slash command suggestions */}
       {suggestions.length > 0 && (
         <View style={styles.suggestions}>
           {suggestions.map(s => (
@@ -80,6 +87,9 @@ export default function ChatInput({ onSend, onCancel, streaming }: Props) {
           editable={!streaming}
         />
 
+        {/* Voice input button */}
+        <VoiceButton onTranscript={handleTranscript} disabled={streaming} />
+
         {streaming ? (
           <TouchableOpacity style={[styles.btn, styles.stopBtn]} onPress={onCancel}>
             <View style={styles.stopIcon} />
@@ -87,7 +97,7 @@ export default function ChatInput({ onSend, onCancel, streaming }: Props) {
         ) : (
           <TouchableOpacity
             style={[styles.btn, styles.sendBtn, !text.trim() && styles.btnDisabled]}
-            onPress={submit}
+            onPress={() => submit()}
             disabled={!text.trim()}
           >
             <Text style={styles.sendArrow}>↑</Text>
