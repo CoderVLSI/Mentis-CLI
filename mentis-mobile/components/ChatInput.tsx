@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import {
-  FlatList, Keyboard, StyleSheet,
+  Keyboard, StyleSheet,
   Text, TextInput, TouchableOpacity, View,
 } from 'react-native'
 import { C } from '../constants/theme'
@@ -15,12 +15,14 @@ const SLASH_COMMANDS = [
 ]
 
 interface Props {
-  onSend:    (text: string) => void
-  onCancel:  () => void
-  streaming: boolean
+  onSend:          (text: string) => void
+  onCancel:        () => void
+  streaming:       boolean
+  voiceListening?: boolean
+  onMicPress?:     () => void
 }
 
-export default function ChatInput({ onSend, onCancel, streaming }: Props) {
+export default function ChatInput({ onSend, onCancel, streaming, voiceListening, onMicPress }: Props) {
   const [text, setText]               = useState('')
   const [suggestions, setSuggestions] = useState<typeof SLASH_COMMANDS>([])
   const inputRef = useRef<TextInput>(null)
@@ -47,14 +49,6 @@ export default function ChatInput({ onSend, onCancel, streaming }: Props) {
     setSuggestions([])
     Keyboard.dismiss()
     onSend(t)
-  }
-
-  // Voice transcript → auto-send immediately (hands-free feel)
-  const handleTranscript = (transcript: string) => {
-    if (streaming) return
-    setText(transcript)
-    // Small delay so user sees what was heard before it sends
-    setTimeout(() => submit(transcript), 400)
   }
 
   return (
@@ -87,8 +81,11 @@ export default function ChatInput({ onSend, onCancel, streaming }: Props) {
           editable={!streaming}
         />
 
-        {/* Voice input button */}
-        <VoiceButton onTranscript={handleTranscript} disabled={streaming} />
+        <VoiceButton
+          listening={voiceListening ?? false}
+          onPress={onMicPress ?? (() => {})}
+          disabled={streaming}
+        />
 
         {streaming ? (
           <TouchableOpacity style={[styles.btn, styles.stopBtn]} onPress={onCancel}>
