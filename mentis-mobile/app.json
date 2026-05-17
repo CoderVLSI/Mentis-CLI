@@ -10,7 +10,11 @@
     "backgroundColor": "#0d0d0d",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.mentis.mobile"
+      "bundleIdentifier": "com.mentis.mobile",
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "Mentis uses speech recognition so you can talk to the AI assistant hands-free.",
+        "NSMicrophoneUsageDescription": "Mentis needs the microphone to listen to your voice commands."
+      }
     },
     "android": {
       "adaptiveIcon": { "backgroundColor": "#0d0d0d" },
@@ -24,6 +28,7 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
+      "expo-speech-recognition",
       [
         "expo-splash-screen",
         { "backgroundColor": "#0d0d0d", "resizeMode": "contain" }
