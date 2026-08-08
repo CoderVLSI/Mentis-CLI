@@ -1,6 +1,7 @@
 import axios, { AxiosError } from 'axios';
 import { ModelClient, ChatMessage, ModelResponse, ToolDefinition } from './ModelInterface';
 import { buildSystemPrompt, ToolSummary } from './SystemPrompt';
+import { EffortLevel, getMaxOutputTokens } from './ModelCatalog';
 
 const REQUEST_TIMEOUT_MS = 120_000; // 2 min hard timeout per request
 const MAX_RETRIES = 3;
@@ -38,11 +39,13 @@ export class OpenAIClient implements ModelClient {
     private baseUrl: string;
     private apiKey: string;
     private model: string;
+    private effort?: EffortLevel;
 
-    constructor(baseUrl: string, apiKey: string, model: string) {
+    constructor(baseUrl: string, apiKey: string, model: string, effort?: EffortLevel) {
         this.baseUrl = baseUrl.replace(/\/$/, '');
         this.apiKey = apiKey;
         this.model = model;
+        this.effort = effort;
     }
 
     async chat(messages: ChatMessage[], tools?: ToolDefinition[], signal?: AbortSignal): Promise<ModelResponse> {
@@ -101,13 +104,22 @@ export class OpenAIClient implements ModelClient {
 
         const requestBody: any = {
             model: this.model,
-            max_tokens: 8096,
-            temperature: 0.7,
             messages: [
                 { role: 'system', content: systemContent },
                 ...conversation,
             ],
         };
+
+        const openAIReasoningModel = /^(gpt-5|o[134](?:-|$))/i.test(this.model);
+        const rejectsSamplingParameters = openAIReasoningModel || /^gemini-3(?:\.|-|$)/i.test(this.model);
+        const maxOutputTokens = getMaxOutputTokens(this.effort);
+        if (openAIReasoningModel) {
+            requestBody.max_completion_tokens = maxOutputTokens;
+        } else {
+            requestBody.max_tokens = maxOutputTokens;
+        }
+        if (!rejectsSamplingParameters) requestBody.temperature = 0.7;
+        if (this.effort) requestBody.reasoning_effort = this.effort;
 
         if (tools && tools.length > 0) {
             requestBody.tools = tools;
