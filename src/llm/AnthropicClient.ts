@@ -16,6 +16,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { ModelClient, ChatMessage, ModelResponse, ToolDefinition } from './ModelInterface';
 import { buildSystemPrompt, ToolSummary } from './SystemPrompt';
+import { EffortLevel, getMaxOutputTokens } from './ModelCatalog';
 
 const CACHE_INTERVAL = 10;
 const REQUEST_TIMEOUT_MS = 120_000;
@@ -26,11 +27,13 @@ async function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 export class AnthropicClient implements ModelClient {
     private client: Anthropic;
     private model: string;
+    private effort?: EffortLevel;
     private lastTools?: ToolDefinition[];
 
-    constructor(apiKey: string, model: string) {
+    constructor(apiKey: string, model: string, effort?: EffortLevel) {
         this.client = new Anthropic({ apiKey });
         this.model = model;
+        this.effort = effort;
     }
 
     async chat(
@@ -43,10 +46,16 @@ export class AnthropicClient implements ModelClient {
 
         const params: Anthropic.MessageCreateParamsNonStreaming = {
             model: this.model,
-            max_tokens: 8096,
+            max_tokens: getMaxOutputTokens(this.effort),
             system: systemBlocks,
             messages: anthropicMessages,
         };
+
+        if (this.effort) {
+            const effortParams = params as any;
+            effortParams.thinking = { type: 'adaptive' };
+            effortParams.output_config = { effort: this.effort };
+        }
 
         if (tools && tools.length > 0) {
             params.tools = tools.map(t => ({

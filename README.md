@@ -82,9 +82,9 @@ On first run, type `/model` to configure your provider and API key.
 
 | Provider | Models | Setup |
 |---|---|---|
-| **Anthropic** | claude-opus-4, claude-sonnet-4, claude-haiku-4 | `ANTHROPIC_API_KEY` — includes prompt caching |
-| **Gemini** | gemini-2.5-pro, gemini-2.5-flash | `GEMINI_API_KEY` |
-| **OpenAI** | gpt-4o, gpt-4o-mini, o3 | `OPENAI_API_KEY` |
+| **Anthropic** | claude-fable-5, claude-opus-5, claude-sonnet-5, claude-haiku-4-5 | `ANTHROPIC_API_KEY` — includes prompt caching and effort control |
+| **Gemini** | gemini-3.6-flash, gemini-3.5-flash, gemini-3.1-pro-preview | `GEMINI_API_KEY` — supported models include effort control |
+| **OpenAI** | gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.3-codex | `OPENAI_API_KEY` — supported models include effort control |
 | **Ollama** | llama3, deepseek-coder, qwen2.5 | Local, no key needed |
 | **GLM** | glm-4-plus | Z.AI API key |
 
@@ -96,6 +96,8 @@ On first run, type `/model` to configure your provider and API key.
 |---|---|
 | `/help` | Show all commands |
 | `/model` | Configure provider and model |
+| `/model <id> [effort]` | Set a model directly, optionally with its supported effort |
+| `/effort [default\|none\|minimal\|low\|medium\|high\|xhigh\|max]` | Inspect or change provider-aware reasoning effort |
 | `/plan` | Switch to planning mode |
 | `/build` | Switch to build mode |
 | `/mcp search [query]` | Browse/search MCP registry |
