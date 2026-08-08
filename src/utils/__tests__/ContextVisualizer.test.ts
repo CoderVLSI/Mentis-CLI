@@ -2,7 +2,7 @@
  * Tests for ContextVisualizer
  */
 
-import { ContextVisualizer } from '../ContextVisualizer';
+import { ContextVisualizer, ContextUsage, contextWindowForModel } from '../ContextVisualizer';
 import { ChatMessage } from '../../llm/ModelInterface';
 
 describe('ContextVisualizer', () => {
@@ -52,9 +52,17 @@ describe('ContextVisualizer', () => {
     });
 
     describe('formatBar', () => {
+        const usage = (tokens: number, percentage: number): ContextUsage => ({
+            tokens,
+            percentage,
+            maxTokens: 128000,
+            usableTokens: 119808,
+            reservedTokens: 8192,
+            remainingTokens: Math.max(0, 119808 - tokens),
+        });
+
         it('should format bar at low usage', () => {
-            const usage = { tokens: 1000, percentage: 5, maxTokens: 128000 };
-            const bar = visualizer.formatBar(usage);
+            const bar = visualizer.formatBar(usage(1000, 5));
 
             // Check that bar contains expected data (without chalk dependency)
             expect(bar).toContain('5');
@@ -63,16 +71,14 @@ describe('ContextVisualizer', () => {
         });
 
         it('should format bar at medium usage', () => {
-            const usage = { tokens: 50000, percentage: 40, maxTokens: 128000 };
-            const bar = visualizer.formatBar(usage);
+            const bar = visualizer.formatBar(usage(50000, 40));
 
             expect(bar).toContain('40');
             expect(bar).toContain('50k');
         });
 
         it('should format bar at high usage', () => {
-            const usage = { tokens: 100000, percentage: 80, maxTokens: 128000 };
-            const bar = visualizer.formatBar(usage);
+            const bar = visualizer.formatBar(usage(100000, 80));
 
             expect(bar).toContain('80');
             expect(bar).toContain('100k');
@@ -113,6 +119,25 @@ describe('ContextVisualizer', () => {
 
             expect(usage.maxTokens).toBe(32000);
             expect(usage.percentage).toBeGreaterThan(1); // Should be higher percentage with smaller max
+        });
+    });
+
+    describe('model-aware budgets', () => {
+        it('maps current model families to their context windows', () => {
+            expect(contextWindowForModel('gpt-5.6-sol')).toBe(1050000);
+            expect(contextWindowForModel('claude-sonnet-5')).toBe(1000000);
+            expect(contextWindowForModel('gemini-3-pro')).toBe(1048576);
+            expect(contextWindowForModel('unknown-local-model')).toBe(128000);
+        });
+
+        it('reserves output tokens before calculating input pressure', () => {
+            visualizer.setModel('claude-sonnet-5');
+            const current = visualizer.calculateUsage([]);
+
+            expect(current.maxTokens).toBe(1000000);
+            expect(current.reservedTokens).toBe(32768);
+            expect(current.usableTokens).toBe(967232);
+            expect(current.remainingTokens).toBe(current.usableTokens - current.tokens);
         });
     });
 });

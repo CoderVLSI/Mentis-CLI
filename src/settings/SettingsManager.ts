@@ -33,10 +33,18 @@ export interface SidekickSettings {
     showOnStart?: boolean;
 }
 
+export interface ContextSettings {
+    autoCompact?: boolean;
+    compactAtPercent?: number;
+    forceCompactAtPercent?: number;
+    keepRecentTurns?: number;
+}
+
 export interface MentisSettings {
     hooks?: HooksConfig;
     permissions?: PermissionsConfig;
     sidekick?: SidekickSettings;
+    context?: ContextSettings;
 }
 
 export class SettingsManager {
@@ -85,6 +93,10 @@ export class SettingsManager {
                 ...base.sidekick,
                 ...override.sidekick,
             },
+            context: {
+                ...base.context,
+                ...override.context,
+            },
         };
     }
 
@@ -102,6 +114,22 @@ export class SettingsManager {
 
     getSidekickSettings(): SidekickSettings {
         return this.settings.sidekick ?? {};
+    }
+
+    getContextSettings(): Required<ContextSettings> {
+        const configured = this.settings.context ?? {};
+        const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+        const compactAtPercent = clamp(configured.compactAtPercent ?? 80, 50, 95);
+        return {
+            autoCompact: configured.autoCompact ?? true,
+            compactAtPercent,
+            forceCompactAtPercent: clamp(
+                configured.forceCompactAtPercent ?? 95,
+                compactAtPercent,
+                100,
+            ),
+            keepRecentTurns: clamp(configured.keepRecentTurns ?? 4, 1, 20),
+        };
     }
 
     /** Reload from disk (useful if settings.json was edited during a session). */

@@ -29,6 +29,7 @@ export const COMMANDS: { cmd: string; desc: string }[] = [
     { cmd: '/skills',   desc: 'Manage agent skills' },
     { cmd: '/commands', desc: 'Manage custom slash commands' },
     { cmd: '/memory',   desc: 'View & manage persistent memory' },
+    { cmd: '/context',  desc: 'Show context budget & compaction settings' },
     { cmd: '/status',   desc: 'Show session status' },
     { cmd: '/exit',     desc: 'Save session & exit' },
 ];

@@ -9,15 +9,32 @@ export interface ContextUsage {
     tokens: number;
     percentage: number;
     maxTokens: number;
+    usableTokens: number;
+    reservedTokens: number;
+    remainingTokens: number;
+}
+
+const DEFAULT_CONTEXT_WINDOW = 128000;
+
+export function contextWindowForModel(model: string): number {
+    const id = model.toLowerCase();
+    if (/^gpt-5\.6(?:-|$)/.test(id)) return 1_050_000;
+    if (/^gpt-(?:5|4\.1)(?:-|$)/.test(id)) return 1_000_000;
+    if (/^claude-(?:fable-5|opus-(?:5|4-[678])|sonnet-(?:5|4-6))/.test(id)) return 1_000_000;
+    if (/^claude-haiku-4-5/.test(id)) return 200_000;
+    if (/^gemini-(?:3|2\.5)(?:\.|-|$)/.test(id)) return 1_048_576;
+    return DEFAULT_CONTEXT_WINDOW;
 }
 
 export class ContextVisualizer {
-    private maxTokens: number = 128000; // Default context window
+    private maxTokens: number = DEFAULT_CONTEXT_WINDOW;
+    private reservedTokens: number;
 
-    constructor(maxTokens?: number) {
+    constructor(maxTokens?: number, reservedTokens?: number) {
         if (maxTokens) {
             this.maxTokens = maxTokens;
         }
+        this.reservedTokens = reservedTokens ?? this.defaultReserve(this.maxTokens);
     }
 
     /**
@@ -50,9 +67,18 @@ export class ContextVisualizer {
 
         // Rough estimation: ~4 characters per token
         const tokens = Math.ceil(totalChars / 4);
-        const percentage = Math.min(100, Math.round((tokens / this.maxTokens) * 100));
+        const usableTokens = Math.max(1, this.maxTokens - this.reservedTokens);
+        const percentage = Math.min(100, Math.round((tokens / usableTokens) * 100));
+        const remainingTokens = Math.max(0, usableTokens - tokens);
 
-        return { tokens, percentage, maxTokens: this.maxTokens };
+        return {
+            tokens,
+            percentage,
+            maxTokens: this.maxTokens,
+            usableTokens,
+            reservedTokens: this.reservedTokens,
+            remainingTokens,
+        };
     }
 
     /**
@@ -101,5 +127,14 @@ export class ContextVisualizer {
      */
     setMaxTokens(max: number): void {
         this.maxTokens = max;
+        this.reservedTokens = this.defaultReserve(max);
+    }
+
+    setModel(model: string): void {
+        this.setMaxTokens(contextWindowForModel(model));
+    }
+
+    private defaultReserve(maxTokens: number): number {
+        return Math.min(32768, Math.max(8192, Math.round(maxTokens * 0.05)));
     }
 }

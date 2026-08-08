@@ -79,6 +79,7 @@ const ALL_COMMANDS = [
     { value: '/clear',    name: '/clear        Clear chat history & context' },
     { value: '/sidekick', name: '/sidekick     Manage your sidekick companion' },
     { value: '/memory',   name: '/memory       View & manage persistent memory' },
+    { value: '/context',  name: '/context      Show context budget & compaction settings' },
     { value: '/init',     name: '/init         Initialize project with .mentis.md' },
     { value: '/plan',     name: '/plan [task]  Ask questions → plan → /build to implement' },
     { value: '/build',   name: '/build        Execute the agreed plan' },
@@ -345,6 +346,7 @@ export class ReplManager {
             model = (config as any).anthropic?.model || 'claude-opus-4-7';
             this.currentModelName = model;
             this.modelClient = new AnthropicClient(apiKey, model);
+            this.contextVisualizer.setModel(model);
             return; // AnthropicClient doesn't use baseUrl
         } else { // Default to Ollama
             baseUrl = config.ollama?.baseUrl || 'http://localhost:11434/v1';
@@ -354,6 +356,7 @@ export class ReplManager {
 
         this.currentModelName = model;
         this.modelClient = new OpenAIClient(baseUrl, apiKey, model);
+        this.contextVisualizer.setModel(model);
         // console.log(chalk.dim(`Initialized ${provider} client with model ${model}`));
     }
 
@@ -522,6 +525,7 @@ export class ReplManager {
                 console.log('  /config  - Configure settings');
                 console.log('  /add <file> - Add file to context');
                 console.log('  /drop <file> - Remove file from context');
+                console.log('  /context - Show context budget and compaction settings');
                 console.log('  /plan    - Switch to PLAN mode');
                 console.log('  /build   - Switch to BUILD mode');
                 console.log('  /model   - Interactively select Provider & Model');
@@ -594,6 +598,9 @@ export class ReplManager {
                 break;
             case '/memory':
                 await this.handleMemoryCommand(args);
+                break;
+            case '/context':
+                this.handleContextCommand();
                 break;
             case '/exit':
                 // Auto-save on exit (both local and global)
@@ -778,6 +785,10 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
         }
 
         this.history.push({ role: 'user', content: fullInput });
+
+        // Compact before the request that could otherwise exceed the model's
+        // input budget. This also runs between tool rounds below.
+        await this.compactHistoryIfNeeded();
 
         const msg = this.getLoadingMessage();
         let spinner = ora({ text: `  ${msg}`, color: 'cyan' }).start();
@@ -986,10 +997,10 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
 
                 if (controller.signal.aborted) throw new Error('Request cancelled by user');
 
+                // Get next response
+                await this.compactHistoryIfNeeded();
                 const msg = this.getLoadingMessage();
                 spinner = ora({ text: `  ${msg}`, color: 'cyan' }).start();
-
-                // Get next response
                 response = await this.modelClient.chat(this.history, this.tools.map(t => ({
                     type: 'function',
                     function: {
@@ -1013,23 +1024,13 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
                     console.log(chalk.dim(`\n(Tokens: ${input_tokens} in / ${output_tokens} out | Est. Cost: $${totalCost.toFixed(5)})`));
                 }
 
-                // Display context bar
+                this.history.push({ role: 'assistant', content: response.content });
+                await this.compactHistoryIfNeeded();
+
+                // Display the post-response, post-compaction context budget.
                 const contextBar = this.contextVisualizer.getContextBar(this.history);
                 console.log(chalk.dim(`\n${contextBar}`));
-
                 console.log('');
-                this.history.push({ role: 'assistant', content: response.content });
-
-                // Auto-compact prompt when context is at 80%
-                const usage = this.contextVisualizer.calculateUsage(this.history);
-                if (usage.percentage >= 80) {
-                    this.history = await this.conversationCompacter.promptIfCompactNeeded(
-                        usage.percentage,
-                        this.history,
-                        this.modelClient,
-                        this.options.yolo
-                    );
-                }
             }
         } catch (error: any) {
             spinner.stop();
@@ -1055,6 +1056,31 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
                 try { process.stdin.setRawMode(false); } catch {}
             }
             try { process.stdin.resume(); } catch {}
+        }
+    }
+
+    private async compactHistoryIfNeeded(): Promise<void> {
+        const usage = this.contextVisualizer.calculateUsage(this.history);
+        const settings = this.settingsManager.getContextSettings();
+        if (usage.percentage < settings.compactAtPercent) return;
+
+        const compacted = await this.conversationCompacter.promptIfCompactNeeded(
+            usage.percentage,
+            this.history,
+            this.modelClient,
+            this.options.yolo,
+            {
+                threshold: settings.compactAtPercent,
+                forceAtPercent: settings.forceCompactAtPercent,
+                autoCompact: settings.autoCompact,
+                keepRecentTurns: settings.keepRecentTurns,
+            },
+        );
+
+        if (compacted !== this.history) {
+            this.history = compacted;
+            const after = this.contextVisualizer.calculateUsage(this.history);
+            console.log(chalk.dim(`  ✓ Context compacted to ${after.percentage}% (${after.tokens.toLocaleString()} estimated tokens).`));
         }
     }
 
@@ -2026,12 +2052,7 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
     private async extractAndSaveMemories(): Promise<void> {
         if (this.history.length < 4) return; // too short to learn from
 
-        // Build a compact summary of the conversation for the LLM
-        const turns = this.history
-            .filter(m => m.role === 'user' || m.role === 'assistant')
-            .slice(-30) // last 30 turns max
-            .map(m => `${m.role.toUpperCase()}: ${(m.content ?? '').substring(0, 300)}`)
-            .join('\n');
+        const turns = MemoryManager.conversationForExtraction(this.history);
 
         const prompt = MemoryManager.extractionPrompt(turns);
 
@@ -2044,8 +2065,11 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
             if (!raw || raw === '[]') return;
             const facts = JSON.parse(raw);
             if (Array.isArray(facts) && facts.length > 0) {
-                this.memoryManager.merge(facts);
-                console.log(chalk.dim(`  ✓ Saved ${facts.length} memory update(s) for next session.`));
+                const merged = this.memoryManager.merge(facts);
+                const changed = merged.added + merged.updated;
+                if (changed > 0) {
+                    console.log(chalk.dim(`  ✓ Saved ${changed} memory update(s) for next session.`));
+                }
             }
         } catch {
             // Memory extraction is non-critical — never surface errors to user
@@ -2080,6 +2104,7 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
             }
             console.log(chalk.dim('\n  /memory clear global|project  — wipe a tier'));
             console.log(chalk.dim('  /memory add global <key> <value>  — add manually\n'));
+            console.log(chalk.dim('  /memory delete global|project <key>  — remove one memory\n'));
             return;
         }
 
@@ -2098,7 +2123,7 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
             const scope = args[1] as 'global' | 'project';
             const key = args[2];
             const value = args.slice(3).join(' ');
-            if (!scope || !key || !value) {
+            if ((scope !== 'global' && scope !== 'project') || !key || !value) {
                 console.log(chalk.red('  Usage: /memory add global|project <key> <value>'));
                 return;
             }
@@ -2107,8 +2132,36 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
             return;
         }
 
+        if (sub === 'delete') {
+            const scope = args[1] as 'global' | 'project';
+            const key = args.slice(2).join(' ');
+            if ((scope !== 'global' && scope !== 'project') || !key) {
+                console.log(chalk.red('  Usage: /memory delete global|project <key>'));
+                return;
+            }
+            const deleted = this.memoryManager.delete(key, scope);
+            console.log(deleted
+                ? chalk.green(`  ✓ Removed '${key}' from ${scope} memory.`)
+                : chalk.yellow(`  No ${scope} memory found for '${key}'.`));
+            return;
+        }
+
         console.log(chalk.red(`  Unknown subcommand: ${sub}`));
-        console.log(chalk.dim('  Usage: /memory [list|clear|add]'));
+        console.log(chalk.dim('  Usage: /memory [list|clear|add|delete]'));
+    }
+
+    private handleContextCommand(): void {
+        const usage = this.contextVisualizer.calculateUsage(this.history);
+        const settings = this.settingsManager.getContextSettings();
+        console.log('');
+        console.log(chalk.bold.cyan('  Context budget'));
+        console.log(`  Model window:    ${usage.maxTokens.toLocaleString()} tokens`);
+        console.log(`  Output reserve:  ${usage.reservedTokens.toLocaleString()} tokens`);
+        console.log(`  Estimated input: ${usage.tokens.toLocaleString()} tokens (${usage.percentage}%)`);
+        console.log(`  Remaining input: ${usage.remainingTokens.toLocaleString()} tokens`);
+        console.log(`  Auto-compaction: ${settings.autoCompact ? 'on' : 'prompt'} at ${settings.compactAtPercent}%`);
+        console.log(`  Forced safety:   ${settings.forceCompactAtPercent}% · keep ${settings.keepRecentTurns} recent turns`);
+        console.log('');
     }
 
     private estimateCost(input: number, output: number): number {
