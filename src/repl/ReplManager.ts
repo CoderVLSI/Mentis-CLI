@@ -49,6 +49,14 @@ import { SpawnAgentsParallelTool } from '../tools/SpawnAgentsParallelTool';
 import { SidekickTool } from '../tools/SidekickTool';
 import { ComputerUseTool } from '../tools/ComputerUseTool';
 import { AnthropicClient } from '../llm/AnthropicClient';
+import {
+    EffortLevel,
+    getDefaultEffort,
+    getEffectiveEffort,
+    getModelPresets,
+    getSupportedEfforts,
+    isProvider,
+} from '../llm/ModelCatalog';
 import { SidekickManager } from '../sidekick/SidekickManager';
 import { renderBanner, renderCard, renderInteraction } from '../sidekick/SidekickDisplay';
 import { MemoryManager } from '../memory/MemoryManager';
@@ -75,6 +83,7 @@ function saveGlobalIndex(index: GlobalSessionMeta[]): void {
 const ALL_COMMANDS = [
     { value: '/help',     name: '/help         Show all available commands' },
     { value: '/model',    name: '/model        Switch AI provider & model' },
+    { value: '/effort',   name: '/effort       Set reasoning effort' },
     { value: '/config',   name: '/config       Configure API keys & settings' },
     { value: '/clear',    name: '/clear        Clear chat history & context' },
     { value: '/sidekick', name: '/sidekick     Manage your sidekick companion' },
@@ -331,11 +340,11 @@ export class ReplManager {
         if (provider === 'gemini') {
             baseUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/';
             apiKey = config.gemini?.apiKey || '';
-            model = config.gemini?.model || 'gemini-2.5-flash';
+            model = config.gemini?.model || 'gemini-3.6-flash';
         } else if (provider === 'openai') {
             baseUrl = config.openai?.baseUrl || 'https://api.openai.com/v1';
             apiKey = config.openai?.apiKey || '';
-            model = config.openai?.model || 'gpt-4o';
+            model = config.openai?.model || 'gpt-5.6-terra';
         } else if (provider === 'glm') {
             // Use the "Coding Plan" endpoint which supports glm-4.6 and this specific key type
             baseUrl = config.glm?.baseUrl || 'https://api.z.ai/api/coding/paas/v4/';
@@ -343,9 +352,10 @@ export class ReplManager {
             model = config.glm?.model || 'glm-4.6';
         } else if (provider === 'anthropic') {
             apiKey = (config as any).anthropic?.apiKey || process.env.ANTHROPIC_API_KEY || '';
-            model = (config as any).anthropic?.model || 'claude-opus-4-7';
-            this.currentModelName = model;
-            this.modelClient = new AnthropicClient(apiKey, model);
+            model = config.anthropic?.model || 'claude-sonnet-5';
+            const effort = getEffectiveEffort('anthropic', model, config.anthropic?.effort);
+            this.currentModelName = effort ? `${model} · ${effort}` : model;
+            this.modelClient = new AnthropicClient(apiKey, model, effort);
             this.contextVisualizer.setModel(model);
             return; // AnthropicClient doesn't use baseUrl
         } else { // Default to Ollama
@@ -354,8 +364,11 @@ export class ReplManager {
             model = config.ollama?.model || 'llama3:latest';
         }
 
-        this.currentModelName = model;
-        this.modelClient = new OpenAIClient(baseUrl, apiKey, model);
+        const effort = isProvider(provider)
+            ? getEffectiveEffort(provider, model, (config as any)[provider]?.effort)
+            : undefined;
+        this.currentModelName = effort ? `${model} · ${effort}` : model;
+        this.modelClient = new OpenAIClient(baseUrl, apiKey, model, effort);
         this.contextVisualizer.setModel(model);
         // console.log(chalk.dim(`Initialized ${provider} client with model ${model}`));
     }
@@ -529,6 +542,7 @@ export class ReplManager {
                 console.log('  /plan    - Switch to PLAN mode');
                 console.log('  /build   - Switch to BUILD mode');
                 console.log('  /model   - Interactively select Provider & Model');
+                console.log('  /effort [default|none|minimal|low|medium|high|xhigh|max] - Set reasoning effort');
                 console.log('  /use <provider> [model] - Quick switch (legacy)');
                 console.log('  /mcp <search|install|list|connect|...> - Manage MCP servers');
                 console.log('  /skills <list|show|create|validate> - Manage Agent Skills');
@@ -556,6 +570,9 @@ export class ReplManager {
                 break;
             case '/model':
                 await this.handleModelCommand(args);
+                break;
+            case '/effort':
+                await this.handleEffortCommand(args);
                 break;
             case '/connect':
                 console.log(chalk.dim('Tip: Use /model for an interactive menu.'));
@@ -1114,7 +1131,7 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
                 type: 'list',
                 name: 'provider',
                 message: 'Select Provider:',
-                choices: ['Gemini', 'Ollama', 'OpenAI', 'GLM']
+                choices: ['Anthropic', 'Gemini', 'OpenAI', 'Ollama', 'GLM']
             }]);
             const key = provider.toLowerCase();
             this.configManager.updateConfig({ defaultProvider: key });
@@ -1164,14 +1181,25 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
         const config = this.configManager.getConfig();
         const currentProvider = config.defaultProvider || 'ollama';
 
-        // Direct argument: /model gpt-4o (updates active provider's model)
+        // Direct argument: /model <model-id> [effort]
         if (args.length > 0) {
             const modelName = args[0];
+            const requestedEffort = args[1]?.toLowerCase();
+            if (requestedEffort && !getSupportedEfforts(currentProvider, modelName).includes(requestedEffort as EffortLevel)) {
+                const levels = getSupportedEfforts(currentProvider, modelName);
+                console.log(chalk.red(`Effort '${requestedEffort}' is not supported for ${modelName}.`));
+                console.log(chalk.dim(levels.length ? `Supported: ${levels.join(', ')}` : 'Use /model without an effort for this custom/non-reasoning model.'));
+                return;
+            }
             const updates: any = {};
-            updates[currentProvider] = { ...((config as any)[currentProvider] || {}), model: modelName };
+            updates[currentProvider] = {
+                ...((config as any)[currentProvider] || {}),
+                model: modelName,
+                effort: requestedEffort || undefined,
+            };
             this.configManager.updateConfig(updates);
             this.initializeClient(); // Re-init with new model
-            console.log(chalk.green(`\nModel set to ${chalk.bold(modelName)} for ${currentProvider}!`));
+            console.log(chalk.green(`\nModel set to ${chalk.bold(modelName)} for ${currentProvider}${requestedEffort ? ` at ${requestedEffort} effort` : ''}!`));
             return;
         }
 
@@ -1183,44 +1211,60 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
                 type: 'list',
                 name: 'provider',
                 message: 'Select Provider:',
-                choices: ['Gemini', 'Ollama', 'OpenAI', 'GLM'],
+                choices: ['Anthropic', 'Gemini', 'OpenAI', 'Ollama', 'GLM'],
                 default: currentProvider.charAt(0).toUpperCase() + currentProvider.slice(1) // Capitalize for default selection
             }
         ]);
 
         const selectedProvider = provider.toLowerCase();
 
-        let models: string[] = [];
-        if (selectedProvider === 'gemini') {
-            models = ['gemini-2.5-flash', 'gemini-1.5-pro', 'gemini-1.0-pro', 'Other...'];
-        } else if (selectedProvider === 'ollama') {
-            models = ['llama3:latest', 'deepseek-r1:latest', 'mistral:latest', 'qwen2.5-coder', 'Other...'];
-        } else if (selectedProvider === 'openai') {
-            models = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'Other...'];
-        } else if (selectedProvider === 'glm') {
-            models = ['glm-4.6', 'glm-4-plus', 'glm-4', 'glm-4-air', 'glm-4-flash', 'Other...'];
-        } else {
-            models = ['Other...'];
-        }
+        const modelChoices = isProvider(selectedProvider)
+            ? [
+                ...getModelPresets(selectedProvider).map(preset => ({ name: preset.label, value: preset.id })),
+                { name: 'Other…', value: '__other__' },
+            ]
+            : [{ name: 'Other…', value: '__other__' }];
 
         let { model } = await inquirer.prompt([
             {
                 type: 'list',
                 name: 'model',
                 message: `Select Model for ${provider}:`,
-                choices: models,
+                choices: modelChoices,
                 // Try to find current model in list to set default
                 default: (config as any)[selectedProvider]?.model
             }
         ]);
 
-        if (model === 'Other...') {
+        if (model === '__other__') {
             const { customModel } = await inquirer.prompt([{
                 type: 'input',
                 name: 'customModel',
                 message: 'Enter model name:'
             }]);
             model = customModel;
+        }
+
+        const supportedEfforts = isProvider(selectedProvider)
+            ? getSupportedEfforts(selectedProvider, model)
+            : [];
+        let effort: EffortLevel | undefined;
+        if (supportedEfforts.length > 0) {
+            const configuredEffort = (config as any)[selectedProvider]?.effort;
+            const suggestedEffort = supportedEfforts.includes(configuredEffort)
+                ? configuredEffort
+                : getDefaultEffort(selectedProvider, model);
+            const answer = await inquirer.prompt([{
+                type: 'list',
+                name: 'effort',
+                message: 'Reasoning effort:',
+                choices: [
+                    { name: 'API/model default', value: '__default__' },
+                    ...supportedEfforts.map(level => ({ name: level, value: level })),
+                ],
+                default: suggestedEffort,
+            }]);
+            effort = answer.effort === '__default__' ? undefined : answer.effort;
         }
 
         // Check for missing API Key (except for Ollama)
@@ -1244,7 +1288,8 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
         updates.defaultProvider = selectedProvider;
         updates[selectedProvider] = {
             ...((config as any)[selectedProvider] || {}),
-            model: model
+            model,
+            effort,
         };
 
         if (newApiKey) {
@@ -1253,7 +1298,52 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
 
         this.configManager.updateConfig(updates);
         this.initializeClient();
-        console.log(chalk.green(`\nSwitched to ${chalk.bold(provider)} (${model})!`));
+        console.log(chalk.green(`\nSwitched to ${chalk.bold(provider)} (${model}${effort ? `, effort: ${effort}` : ''})!`));
+    }
+
+    private async handleEffortCommand(args: string[]) {
+        const config = this.configManager.getConfig();
+        const provider = config.defaultProvider || 'ollama';
+        const model = (config as any)[provider]?.model;
+        if (!model) {
+            console.log(chalk.red('Choose a model with /model first.'));
+            return;
+        }
+
+        const supported = getSupportedEfforts(provider, model);
+        if (supported.length === 0) {
+            console.log(chalk.yellow(`${model} has no known configurable effort levels. The model remains usable with its API default.`));
+            return;
+        }
+
+        let effort = args[0]?.toLowerCase();
+        if (!effort) {
+            const answer = await inquirer.prompt([{
+                type: 'list',
+                name: 'effort',
+                message: `Reasoning effort for ${model}:`,
+                choices: [
+                    { name: 'API/model default', value: 'default' },
+                    ...supported.map(level => ({ name: level, value: level })),
+                ],
+                default: (config as any)[provider]?.effort || getDefaultEffort(provider, model),
+            }]);
+            effort = answer.effort;
+        }
+
+        if (effort !== 'default' && !supported.includes(effort as EffortLevel)) {
+            console.log(chalk.red(`Invalid effort '${effort}'. Supported: default, ${supported.join(', ')}`));
+            return;
+        }
+
+        const updates: any = {};
+        updates[provider] = {
+            ...((config as any)[provider] || {}),
+            effort: effort === 'default' ? undefined : effort,
+        };
+        this.configManager.updateConfig(updates);
+        this.initializeClient();
+        console.log(chalk.green(`Reasoning effort set to ${effort} for ${model}.`));
     }
 
     private async handleConnectCommand(args: string[]) {
@@ -1323,37 +1413,16 @@ Do NOT write any code yet — only the plan. Wait for /build before implementing
 
         const config = this.configManager.getConfig();
 
-        if (provider === 'gemini') {
-            const updates: any = { defaultProvider: 'gemini' };
-            if (model) {
-                updates.gemini = { ...config.gemini, model: model };
-            }
-            this.configManager.updateConfig(updates);
-        } else if (provider === 'ollama') {
-            const updates: any = { defaultProvider: 'ollama' };
-            if (model) {
-                updates.ollama = { ...config.ollama, model: model };
-            }
-            this.configManager.updateConfig(updates);
-        } else if (provider === 'glm') {
-            const updates: any = { defaultProvider: 'glm' };
-            if (model) {
-                updates.glm = { ...config.glm, model: model };
-            }
-            this.configManager.updateConfig(updates);
-
-            // Auto switch if connecting to a new provider
-            if ((provider as string) === 'gemini') {
-                updates.defaultProvider = 'gemini';
-                this.configManager.updateConfig(updates);
-            } else if ((provider as string) === 'ollama') {
-                updates.defaultProvider = 'ollama';
-                this.configManager.updateConfig(updates);
-            }
-        } else {
+        if (!isProvider(provider)) {
             console.log(chalk.red(`Unknown provider: ${provider}`));
             return;
         }
+
+        const updates: any = { defaultProvider: provider };
+        if (model) {
+            updates[provider] = { ...((config as any)[provider] || {}), model, effort: undefined };
+        }
+        this.configManager.updateConfig(updates);
 
         this.initializeClient();
         console.log(chalk.green(`Switched to ${provider} ${model ? `using model ${model}` : ''}`));
