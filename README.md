@@ -40,6 +40,8 @@ mentis
 
 **Todo tracking** — `todo_write` / `todo_read` tools let the AI track task progress across a session.
 
+**Context + memory** — Model-aware context budgets reserve room for the response, compact older turns without breaking tool-call history, and carry durable project/user facts across sessions.
+
 ---
 
 ## Installation
@@ -109,6 +111,8 @@ On first run, type `/model` to configure your provider and API key.
 | `/drop <file>` | Remove file from context |
 | `/resume` | Resume last session |
 | `/checkpoint` | Manage saved sessions |
+| `/context` | Show the current model's input budget and compaction thresholds |
+| `/memory` | List, add, delete, or clear persistent user/project facts |
 | `/search <query>` | Search codebase with grep |
 | `/commit [msg]` | Stage and commit changes |
 | `/run <cmd>` | Run a shell command |
@@ -160,11 +164,28 @@ Configure hooks in `.mentis/settings.json` (project) or `~/.mentis/settings.json
     "write_file": "ask",
     "git_push": "deny",
     "read_file": "allow"
+  },
+  "context": {
+    "autoCompact": true,
+    "compactAtPercent": 80,
+    "forceCompactAtPercent": 95,
+    "keepRecentTurns": 4
   }
 }
 ```
 
 Hook env vars: `MENTIS_HOOK_EVENT`, `MENTIS_TOOL_NAME`, `MENTIS_TOOL_ARGS`, `MENTIS_TOOL_RESULT`, `MENTIS_SESSION_ID`.
+
+Context compaction runs before model requests and between tool rounds. It summarizes older turns while retaining recent messages and complete tool-call/result groups. Set `autoCompact` to `false` to prompt at the normal threshold; the forced threshold remains a safety backstop.
+
+Memory commands use either `global` (all projects) or `project` (current folder) scope:
+
+```bash
+/memory list
+/memory add project test-command "npm test"
+/memory delete project test-command
+/memory clear global
+```
 
 ---
 
