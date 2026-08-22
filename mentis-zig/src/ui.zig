@@ -1,114 +1,76 @@
 const std = @import("std");
 
-const stdout = std.io.getStdOut();
-const stderr = std.io.getStdErr();
+const RESET = "\x1b[0m";
+const BOLD = "\x1b[1m";
+const DIM = "\x1b[2m";
+const CYAN = "\x1b[36m";
+const GREEN = "\x1b[32m";
+const YELLOW = "\x1b[33m";
+const RED = "\x1b[31m";
 
-// ANSI colors
-pub const reset  = "\x1b[0m";
-pub const bold   = "\x1b[1m";
-pub const dim    = "\x1b[2m";
-pub const green  = "\x1b[32m";
-pub const blue   = "\x1b[34m";
-pub const cyan   = "\x1b[36m";
-pub const yellow = "\x1b[33m";
-pub const red    = "\x1b[31m";
-pub const purple = "\x1b[35m";
-pub const gray   = "\x1b[90m";
-pub const white  = "\x1b[97m";
+pub fn printBanner(stdout: std.fs.File) void {
+    stdout.writer().print("\n{s}mentis{s} {s}v1.0.0-zig{s}\n\n", .{ BOLD ++ CYAN, RESET, DIM, RESET }) catch {};
+}
 
-var use_color: bool = true;
+pub fn printPrompt(stdout: std.fs.File) void {
+    stdout.writer().print("{s}>{s} ", .{ BOLD ++ GREEN, RESET }) catch {};
+}
 
-pub fn initColor() void {
-    // Disable color if not a tty or NO_COLOR is set
-    if (std.process.getEnvVarOwned(std.heap.page_allocator, "NO_COLOR") catch null) |_| {
-        use_color = false;
+pub fn printAssistantPrefix(stdout: std.fs.File) void {
+    stdout.writer().print("\n{s}mentis{s}: ", .{ BOLD ++ CYAN, RESET }) catch {};
+}
+
+pub fn printAssistantChunk(stdout: std.fs.File, chunk: []const u8) void {
+    stdout.writeAll(chunk) catch {};
+}
+
+pub fn printTool(stdout: std.fs.File, name: []const u8, input: []const u8) void {
+    stdout.writer().print("\n{s}[tool] {s}{s}\n{s}{s}{s}\n", .{
+        BOLD ++ YELLOW, name, RESET, DIM, input, RESET,
+    }) catch {};
+}
+
+pub fn printToolResult(stdout: std.fs.File, _: []const u8, result: []const u8) void {
+    const preview = if (result.len > 500) result[0..500] else result;
+    stdout.writer().print("{s}{s}{s}\n", .{ DIM, preview, RESET }) catch {};
+}
+
+pub fn printError(stdout: std.fs.File, msg: []const u8, err: anyerror) void {
+    stdout.writer().print("{s}error:{s} {s}: {}\n", .{ RED, RESET, msg, err }) catch {};
+}
+
+pub fn printInfo(stdout: std.fs.File, msg: []const u8) void {
+    stdout.writer().print("{s}{s}{s}\n", .{ DIM, msg, RESET }) catch {};
+}
+
+pub fn printWarn(stdout: std.fs.File, msg: []const u8) void {
+    stdout.writer().print("{s}warn: {s}{s}\n", .{ YELLOW, msg, RESET }) catch {};
+}
+
+pub fn printSeparator(stdout: std.fs.File) void {
+    stdout.writer().print("{s}---{s}\n", .{ DIM, RESET }) catch {};
+}
+
+pub fn printPermissionRequest(stdout: std.fs.File, tool: []const u8, input: []const u8) void {
+    stdout.writer().print("{s}Allow {s}?{s}\n{s}{s}{s}\n[y/N] ", .{
+        BOLD ++ YELLOW, tool, RESET, DIM, input, RESET,
+    }) catch {};
+}
+
+pub fn printSkillLoaded(stdout: std.fs.File, name: []const u8) void {
+    stdout.writer().print("{s}skill loaded: {s}{s}\n", .{ GREEN, name, RESET }) catch {};
+}
+
+pub fn printContextBar(stdout: std.fs.File, pct: u8) void {
+    const filled: usize = @min(@as(usize, pct) * 40 / 100, 40);
+    const w = stdout.writer();
+    w.print("{s}[", .{DIM}) catch return;
+    var i: usize = 0;
+    while (i < 40) : (i += 1) {
+        if (i < filled) w.writeAll("=") catch return
+        else w.writeAll(" ") catch return;
     }
+    w.print("] {d}%{s}\n", .{ pct, RESET }) catch {};
 }
 
-fn c(code: []const u8) []const u8 {
-    return if (use_color) code else "";
-}
-
-pub fn printUser(allocator: std.mem.Allocator, text: []const u8) void {
-    _ = allocator;
-    stdout.writer().print("{s}{s}You{s} {s}\n", .{ c(bold), c(blue), c(reset), text }) catch {};
-}
-
-pub fn printAssistantChunk(chunk: []const u8) void {
-    stdout.writer().writeAll(chunk) catch {};
-}
-
-pub fn printAssistantDone() void {
-    stdout.writer().writeByte('\n') catch {};
-}
-
-pub fn printAssistantPrefix() void {
-    stdout.writer().print("{s}{s}Mentis{s} ", .{ c(bold), c(cyan), c(reset) }) catch {};
-}
-
-pub fn printTool(name: []const u8, input_preview: []const u8) void {
-    stdout.writer().print("{s}⧗ {s}{s}{s} {s}{s}{s}\n",
-        .{ c(yellow), c(bold), name, c(reset), c(gray), input_preview, c(reset) }) catch {};
-}
-
-pub fn printToolResult(result: []const u8) void {
-    // Show first 200 chars of result
-    const preview = if (result.len > 200) result[0..200] else result;
-    stdout.writer().print("{s}  → {s}{s}\n", .{ c(gray), preview, c(reset) }) catch {};
-}
-
-pub fn printError(msg: []const u8) void {
-    stderr.writer().print("{s}{s}Error:{s} {s}\n", .{ c(bold), c(red), c(reset), msg }) catch {};
-}
-
-pub fn printInfo(msg: []const u8) void {
-    stdout.writer().print("{s}{s}\n", .{ c(gray), msg, }) catch {};
-    stdout.writer().writeAll(reset) catch {};
-}
-
-pub fn printWarn(msg: []const u8) void {
-    stdout.writer().print("{s}{s}⚠  {s}{s}\n", .{ c(yellow), c(bold), c(reset), msg }) catch {};
-}
-
-pub fn printBanner() void {
-    stdout.writer().print(
-        "{s}{s}■ Mentis{s}  {s}AI coding agent  {s}type /help for commands{s}\n",
-        .{ c(bold), c(cyan), c(reset), c(white), c(gray), c(reset) },
-    ) catch {};
-}
-
-pub fn printPrompt() void {
-    stdout.writer().print("{s}>{s} ", .{ c(green), c(reset) }) catch {};
-    stdout.writer().context.flush() catch {};
-}
-
-pub fn printContextBar(used: u32, total: u32) void {
-    const pct = @as(f32, @floatFromInt(used)) / @as(f32, @floatFromInt(total)) * 100.0;
-    const color = if (pct > 80.0) c(red) else if (pct > 60.0) c(yellow) else c(gray);
-    stdout.writer().print("{s}  ctx {d}/{d} ({d:.0}%){s}\n",
-        .{ color, used, total, pct, c(reset) }) catch {};
-}
-
-pub fn printPermissionRequest(tool: []const u8, preview: []const u8) !bool {
-    stdout.writer().print(
-        "{s}{s}⚠  Allow tool:{s} {s}{s}{s}\n  {s}{s}{s}\n  [y/n] ",
-        .{ c(bold), c(yellow), c(reset), c(bold), tool, c(reset), c(gray), preview, c(reset) },
-    ) catch {};
-    stdout.writer().context.flush() catch {};
-    var buf: [8]u8 = undefined;
-    const n = std.io.getStdIn().reader().read(&buf) catch return false;
-    const answer = std.mem.trim(u8, buf[0..n], "\n\r ");
-    return std.mem.eql(u8, answer, "y") or std.mem.eql(u8, answer, "yes");
-}
-
-pub fn clearLine() void {
-    stdout.writer().writeAll("\r\x1b[2K") catch {};
-}
-
-pub fn printSkillLoaded(name: []const u8) void {
-    stdout.writer().print("{s}○ skill:{s} {s}\n", .{ c(purple), c(reset), name }) catch {};
-}
-
-pub fn printSeparator() void {
-    stdout.writer().print("{s}{s}{s}\n", .{ c(dim), "─" ** 40, c(reset) }) catch {};
-}
+pub fn printUser(_: std.fs.File) void {}

@@ -62,7 +62,7 @@ pub fn run(allocator: std.mem.Allocator, cfg: *const config.Config) !void {
 
     while (true) {
         if (ctx.shouldCompact()) {
-            ui.printWarn(stdout, "Context near limit — compacting...");
+            ui.printWarn(stdout, "Context near limit - compacting...");
             ctx.compact();
         }
         ui.printContextBar(stdout, ctx.contextPercent());
@@ -99,7 +99,7 @@ fn handleSlash(allocator: std.mem.Allocator, line: []const u8, hist: *history.Hi
         return true;
     }
     if (std.mem.eql(u8, name, "skills")) {
-        for (skill_mgr.list()) |s| stdout.writer().print("  {s} — {s}\n", .{ s.name, s.description }) catch {};
+        for (skill_mgr.list()) |s| stdout.writer().print("  {s} - {s}\n", .{ s.name, s.description }) catch {};
         return true;
     }
     if (cmd_mgr.find(name)) |cmd| {
@@ -130,7 +130,7 @@ fn processInput(
     stdout: std.fs.File,
 ) !void {
     _ = ctx;
-    var input = cmd_mgr.expandFileRef(raw) catch try allocator.dupe(u8, raw);
+    const input = cmd_mgr.expandFileRef(raw) catch try allocator.dupe(u8, raw);
     defer allocator.free(input);
 
     if (std.mem.startsWith(u8, input, "!")) {
@@ -151,7 +151,7 @@ fn processInput(
     try sys_buf.appendSlice("You are Mentis, an AI assistant for software development. Be concise and helpful.");
     try skill_mgr.systemPromptAdditions(&sys_buf);
 
-    var tool_defs = try tools_mgr.toolDefs(allocator);
+    const tool_defs = try tools_mgr.toolDefs(allocator);
     defer allocator.free(tool_defs);
     const mcp_defs = try mcp_client.toolDefs(allocator);
     defer allocator.free(mcp_defs);
@@ -196,7 +196,6 @@ fn processInput(
                     std.fmt.allocPrint(allocator, "Tool error: {}", .{e}) catch continue;
             defer allocator.free(tres);
             ui.printToolResult(stdout, tc.name, tres);
-
             const ta = [_]llm.ContentBlock{.{ .tool_use = tc }};
             const tr = [_]llm.ContentBlock{.{ .tool_result = .{ .tool_use_id = tc.id, .content = tres, .is_error = false } }};
             hist.push(.{ .role = .assistant, .content = &ta }) catch {};
