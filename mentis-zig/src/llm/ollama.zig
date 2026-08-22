@@ -1,108 +1,90 @@
 const std = @import("std");
-const iface = @import("interface.zig");
+const config = @import("../config.zig");
+const llm = @import("interface.zig");
 
-pub const OllamaProvider = struct {
-    base_url: []const u8,
+pub fn chat(
     allocator: std.mem.Allocator,
+    cfg: *const config.Config,
+    messages: []const llm.Message,
+    opts: llm.ChatOptions,
+    stream_fn: llm.StreamChunkFn,
+    stream_ctx: ?*anyopaque,
+) !llm.ChatResult {
+    const base = if (cfg.ollama_base_url.len > 0) cfg.ollama_base_url else "http://localhost:11434";
+    const url = try std.fmt.allocPrint(allocator, "{s}/api/chat", .{base});
+    defer allocator.free(url);
 
-    pub fn init(allocator: std.mem.Allocator, base_url: []const u8) OllamaProvider {
-        return .{ .base_url = base_url, .allocator = allocator };
+    var body = std.ArrayList(u8).init(allocator);
+    defer body.deinit();
+    const w = body.writer();
+
+    try w.print("{{\"model\":\"{s}\",\"stream\":false,\"messages\":[", .{opts.model});
+    for (messages, 0..) |msg, i| {
+        if (i > 0) try w.writeByte(',');
+        const role = switch (msg.role) { .user => "user", .assistant => "assistant", .system => "system" };
+        try w.print("{{\"role\":\"{s}\",\"content\":\"", .{role});
+        try jsonStr(w, msg.textOnly());
+        try w.writeAll("\"}}");
+    }
+    try w.writeAll("]}");
+
+    var client = std.http.Client{ .allocator = allocator };
+    defer client.deinit();
+
+    var resp = std.ArrayList(u8).init(allocator);
+    defer resp.deinit();
+
+    const hdrs = [_]std.http.Header{
+        .{ .name = "content-type", .value = "application/json" },
+    };
+
+    _ = try client.fetch(.{
+        .method = .POST,
+        .location = .{ .url = url },
+        .extra_headers = &hdrs,
+        .payload = body.items,
+        .response_storage = .{ .dynamic = &resp },
+    });
+
+    return parse(allocator, resp.items, stream_fn, stream_ctx);
+}
+
+fn parse(allocator: std.mem.Allocator, body: []const u8, stream_fn: llm.StreamChunkFn, stream_ctx: ?*anyopaque) !llm.ChatResult {
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, body, .{ .ignore_unknown_fields = true });
+    defer parsed.deinit();
+    const root = parsed.value;
+
+    if (root.object.get("error")) |e| {
+        const t = try std.fmt.allocPrint(allocator, "Ollama error: {s}", .{e.string});
+        return llm.ChatResult{ .text = t, .tool_calls = try allocator.alloc(llm.ToolUse, 0), .stop_reason = .other, .input_tokens = 0, .output_tokens = 0, .allocator = allocator };
     }
 
-    pub fn chat(
-        self: *OllamaProvider,
-        messages: []const iface.Message,
-        tools: []const iface.ToolDef,
-        opts: iface.ChatOptions,
-        on_chunk: ?iface.StreamChunkFn,
-        ctx: ?*anyopaque,
-    ) !iface.ChatResult {
-        _ = tools;
-        const allocator = self.allocator;
-        const url = try std.fmt.allocPrint(allocator, "{s}/api/chat", .{self.base_url});
-        defer allocator.free(url);
+    const msg = root.object.get("message") orelse {
+        return llm.ChatResult{ .text = try allocator.dupe(u8, ""), .tool_calls = try allocator.alloc(llm.ToolUse, 0), .stop_reason = .end_turn, .input_tokens = 0, .output_tokens = 0, .allocator = allocator };
+    };
+    const content_str = if (msg.object.get("content")) |c| c.string else "";
+    const text = try allocator.dupe(u8, content_str);
 
-        var body = std.ArrayList(u8).init(allocator);
-        defer body.deinit();
-        const w = body.writer();
+    if (stream_fn) |sf| if (text.len > 0) sf(text, stream_ctx);
 
-        try w.print("{{\"model\":\"{s}\",\"stream\":{s},\"messages\":[",
-            .{ opts.model, if (on_chunk != null) "true" else "false" });
+    return llm.ChatResult{
+        .text = text,
+        .tool_calls = try allocator.alloc(llm.ToolUse, 0),
+        .stop_reason = .end_turn,
+        .input_tokens = 0,
+        .output_tokens = 0,
+        .allocator = allocator,
+    };
+}
 
-        if (opts.system) |sys| {
-            try w.print("{{\"role\":\"system\",\"content\":\"{s}\"}},", .{sys});
-        }
-
-        for (messages, 0..) |msg, i| {
-            if (i > 0) try w.writeByte(',');
-            var text_content = std.ArrayList(u8).init(allocator);
-            defer text_content.deinit();
-            for (msg.content) |block| {
-                switch (block) {
-                    .text => |t| try text_content.appendSlice(t),
-                    else => {},
-                }
-            }
-            try w.print("{{\"role\":\"{s}\",\"content\":\"{s}\"}}",
-                .{ msg.role.toString(), text_content.items });
-        }
-        try w.writeAll("]}");
-
-        const body_bytes = try body.toOwnedSlice();
-        defer allocator.free(body_bytes);
-
-        var client = std.http.Client{ .allocator = allocator };
-        defer client.deinit();
-        const uri = try std.Uri.parse(url);
-        var hbuf: [16 * 1024]u8 = undefined;
-        const headers = [_]std.http.Header{
-            .{ .name = "content-type", .value = "application/json" },
-        };
-        var req = try client.open(.POST, uri, .{ .server_header_buffer = &hbuf, .extra_headers = &headers });
-        defer req.deinit();
-        req.transfer_encoding = .{ .content_length = body_bytes.len };
-        try req.send();
-        try req.writeAll(body_bytes);
-        try req.finish();
-        try req.wait();
-
-        if (req.response.status != .ok) return error.ApiError;
-
-        var text_buf = std.ArrayList(u8).init(allocator);
-        var read_buf: [4096]u8 = undefined;
-        var leftover = std.ArrayList(u8).init(allocator);
-        defer leftover.deinit();
-
-        while (true) {
-            const n = try req.reader().read(&read_buf);
-            if (n == 0) break;
-            try leftover.appendSlice(read_buf[0..n]);
-            while (std.mem.indexOfScalar(u8, leftover.items, '\n')) |nl| {
-                const line = leftover.items[0..nl];
-                const parsed = std.json.parseFromSlice(std.json.Value, allocator, line, .{}) catch {
-                    const rem = leftover.items[nl + 1 ..];
-                    try leftover.replaceRange(0, leftover.items.len, rem);
-                    continue;
-                };
-                defer parsed.deinit();
-                if (parsed.value.object.get("message")) |msg_val| {
-                    if (msg_val.object.get("content")) |content| {
-                        try text_buf.appendSlice(content.string);
-                        if (on_chunk) |cb| cb(content.string, ctx);
-                    }
-                }
-                const rem = leftover.items[nl + 1 ..];
-                try leftover.replaceRange(0, leftover.items.len, rem);
-            }
-        }
-
-        return .{
-            .text = try text_buf.toOwnedSlice(),
-            .tool_calls = try allocator.alloc(iface.ToolUse, 0),
-            .stop_reason = .end_turn,
-            .input_tokens = 0,
-            .output_tokens = 0,
-            .allocator = allocator,
-        };
-    }
-};
+fn jsonStr(w: anytype, s: []const u8) !void {
+    for (s) |c| switch (c) {
+        '"' => try w.writeAll("\\\""),
+        '\\' => try w.writeAll("\\\\"),
+        '\n' => try w.writeAll("\\n"),
+        '\r' => try w.writeAll("\\r"),
+        '\t' => try w.writeAll("\\t"),
+        0x00...0x1f => try w.print("\\u{x:0>4}", .{c}),
+        else => try w.writeByte(c),
+    };
+}
