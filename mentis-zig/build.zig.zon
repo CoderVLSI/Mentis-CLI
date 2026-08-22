@@ -1,7 +1,8 @@
 .{
     .name = .mentis,
+    .fingerprint = 0xa148f5ce943d01a2,
     .version = "1.0.0",
     .minimum_zig_version = "0.14.0",
     .dependencies = .{},
-    .paths = .{"." },
+    .paths = .{ "." },
 }
