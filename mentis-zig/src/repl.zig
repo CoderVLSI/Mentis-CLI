@@ -29,6 +29,20 @@ fn onChunk(chunk: []const u8, ctx: ?*anyopaque) void {
     sc.stdout.writeAll(chunk) catch {};
 }
 
+pub fn runOnce(allocator: std.mem.Allocator, cfg: *const config.Config, prompt: []const u8) !void {
+    var hist = history.History.init(allocator);
+    defer hist.deinit();
+    var skill_mgr = skills.SkillManager.init(allocator);
+    defer skill_mgr.deinit();
+    var cmd_mgr = commands.CommandManager.init(allocator);
+    defer cmd_mgr.deinit();
+    var mcp_client = mcp.McpClient.init(allocator);
+    defer mcp_client.deinit();
+    const stdout = std.io.getStdOut();
+    var ctx = context_mod.ContextManager.init(allocator, &hist, cfg);
+    try processInput(allocator, prompt, cfg, &hist, &ctx, &skill_mgr, &cmd_mgr, &mcp_client, stdout);
+}
+
 pub fn run(allocator: std.mem.Allocator, cfg: *const config.Config) !void {
     var hist = history.History.init(allocator);
     defer hist.deinit();

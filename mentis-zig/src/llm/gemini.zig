@@ -21,9 +21,11 @@ pub fn chat(
     const w = body.writer();
 
     try w.writeAll("{\"contents\":[");
-    for (messages, 0..) |msg, i| {
-        if (i > 0) try w.writeByte(',');
+    var first_msg = true;
+    for (messages) |msg| {
         if (msg.role == .system) continue;
+        if (!first_msg) try w.writeByte(',');
+        first_msg = false;
         const role = if (msg.role == .assistant) "model" else "user";
         try w.print("{{\"role\":\"{s}\",\"parts\":[", .{role});
         for (msg.content, 0..) |blk, j| {
@@ -31,7 +33,7 @@ pub fn chat(
             switch (blk) {
                 .text => |t| { try w.writeAll("{\"text\":\""); try jsonStr(w, t); try w.writeAll("\"}}"); },
                 .tool_use => |tu| { try w.print("{{\"functionCall\":{{\"name\":\"{s}\",\"args\":{s}}}}}", .{ tu.name, tu.input_json }); },
-                .tool_result => |tr| { try w.print("{{\"functionResponse\":{{\"name\":\"tool\",\"response\":{{\"content\":\"{s}\"}}}}}}", .{tr.tool_use_id}); _ = tr; },
+                .tool_result => |tr| { try w.print("{{\"functionResponse\":{{\"name\":\"tool\",\"response\":{{\"output\":\"{s}\"}}}}}}", .{tr.tool_use_id}); },
             }
         }
         try w.writeAll("]}");
@@ -55,7 +57,7 @@ pub fn chat(
         try w.writeAll("}]}");
     }
 
-    try w.print(",\"generationConfig\":{{\"maxOutputTokens\":{d},\"temperature\":{d}}}}}", .{ opts.max_tokens, opts.temperature });
+    try w.print(",\"generationConfig\":{{\"maxOutputTokens\":{d}}}}}", .{opts.max_tokens});
 
     var client = std.http.Client{ .allocator = allocator };
     defer client.deinit();
